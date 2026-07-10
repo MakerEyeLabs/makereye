@@ -1,0 +1,108 @@
+# MakerEye example configuration.
+#
+# Installed to /etc/makereye/config.yaml on first install (the installer
+# never overwrites an existing config). MakerEye validates this file on
+# every load and refuses to start on invalid or unknown values -- it never
+# rewrites this file for you.
+#
+# Override the config path with: makereye run -config /path/to/config.yaml
+
+# Identifies this MakerEye instance. Used in logs and, in later
+# milestones, in MQTT topics and Prusa Connect registration.
+device:
+  name: makereye
+
+# Camera capture settings, passed to rpicam-vid (the current Raspberry Pi
+# camera tool; MakerEye does not use the legacy raspivid).
+camera:
+  # libcamera camera index. 0 is correct for a Pi with a single camera
+  # (the standard Camera Module 3 + Pi Zero 2 W setup).
+  camera: 0
+
+  # Resolution and framerate. Camera Module 3's sensor supports higher
+  # resolutions, but the Pi Zero 2 W's CPU limits practical encode
+  # settings -- 1920x1080@30fps is a reasonable starting point for
+  # monitoring a printer at close range.
+  width: 1920
+  height: 1080
+  framerate: 30
+
+  # H.264 target bitrate in kilobits/second. Higher values improve detail
+  # in fast motion (e.g. print head movement) at the cost of network
+  # bandwidth and SD card wear if recorded.
+  bitrate_kbps: 4000
+
+  # Rotation must be 0 or 180 (matches how the Camera Module 3 mounts).
+  rotation: 0
+  hflip: false
+  vflip: false
+
+  # Autofocus mode for Camera Module 3: "auto" (focus once at start),
+  # "continuous" (keep refocusing), or "manual" (fixed focus distance).
+  # "continuous" is a reasonable default for a printer enclosure where
+  # the subject distance is fixed but auto-hunting on startup is
+  # undesirable.
+  autofocus: continuous
+
+  # Only used when autofocus is "manual". Lens position in dioptres
+  # (1/metres); 0 means focused at infinity. For a typical MK4 enclosure
+  # mount at ~15-25cm from the nozzle, try a value around 4.0-6.0 and
+  # adjust by eye.
+  lens_position: 0.0
+
+# The go2rtc stream exposing the camera.
+stream:
+  # Stream name, used in all client URLs, e.g.:
+  #   rtsp://<host>:8554/camera
+  name: camera
+
+# go2rtc is MakerEye's streaming backend, launched and supervised
+# directly by MakerEye (see DESIGN.md for why). These settings control
+# where its binary/config live and what it listens on.
+go2rtc:
+  binary_path: /usr/local/bin/go2rtc
+  config_path: /var/lib/makereye/go2rtc.yaml
+
+  # Listen addresses. These default to loopback-only for safety -- see
+  # README.md "Network exposure" before changing these to 0.0.0.0 or a
+  # LAN address, since go2rtc's RTSP/WebRTC/MJPEG/snapshot endpoints have
+  # no authentication in this milestone.
+  rtsp_listen: 127.0.0.1:8554
+  webrtc_listen: 127.0.0.1:1984
+  http_listen: 127.0.0.1:1984
+
+# General daemon behavior.
+system:
+  log_level: info
+  state_dir: /var/lib/makereye
+  run_dir: /run/makereye
+
+# --------------------------------------------------------------------
+# The sections below are placeholders for future milestones. They are
+# accepted and lightly validated but have NO runtime effect yet --
+# setting enabled: true does nothing in this version of MakerEye.
+# --------------------------------------------------------------------
+
+# Milestone 2: direct Prusa Connect snapshot uploads.
+prusa_connect:
+  enabled: false
+
+# Milestone 3: optional MQTT telemetry and control.
+mqtt:
+  enabled: false
+
+# Milestone 4/5: manual and PrusaLink-triggered timelapses.
+timelapse:
+  enabled: false
+
+# Milestone 5: PrusaLink automatic timelapse triggers.
+prusalink:
+  enabled: false
+
+# Milestone 6: motion-triggered recording.
+motion:
+  enabled: false
+
+# Milestone 7: local AI print monitoring.
+ai:
+  enabled: false

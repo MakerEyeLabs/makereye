@@ -1,0 +1,29 @@
+name: test
+
+# Proposed workflow, not active. See _github/workflows/README.md for why
+# these live outside .github/workflows for now, and move this file there
+# when ready to enable CI.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: gofmt check
+        run: test -z "$(gofmt -l .)"
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./...
+      - name: build (host)
+        run: go build ./...
+      - name: build (linux/arm64, Pi target)
+        run: GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/makereye

@@ -1,0 +1,38 @@
+[Unit]
+Description=MakerEye camera appliance
+Documentation=https://github.com/MakerEyeLabs/makereye
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/makereye run -config /etc/makereye/config.yaml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+
+User=makereye
+Group=makereye
+# Camera device nodes (/dev/video*, /dev/media*, /dev/dma_heap/*) are
+# owned by the "video" group on Raspberry Pi OS.
+SupplementaryGroups=video
+
+RuntimeDirectory=makereye
+RuntimeDirectoryMode=0750
+StateDirectory=makereye
+StateDirectoryMode=0750
+ConfigurationDirectory=makereye
+
+# Moderate hardening. ProtectSystem=strict and device allow-lists are
+# intentionally avoided here: libcamera/rpicam-vid on the Pi Zero 2 W
+# touches several device nodes (/dev/video*, /dev/media*, /dev/dma_heap,
+# vchiq) whose exact set varies by firmware/kernel version, and getting a
+# DeviceAllow list wrong silently breaks the camera. Revisit once this has
+# been validated against real hardware across a few OS releases.
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectSystem=full
+ReadWritePaths=/var/lib/makereye /run/makereye
+
+[Install]
+WantedBy=multi-user.target
