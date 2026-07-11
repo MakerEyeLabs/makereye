@@ -7,6 +7,10 @@ config generation, process-supervisor logic) can be developed and tested
 on any machine with Go installed, a Raspberry Pi is only required to
 exercise the actual camera and go2rtc streaming pipeline end to end.
 
+On a fresh machine without git/make/Go (e.g. stock Raspberry Pi OS Lite),
+see the "Install" section of `README.md` for `scripts/bootstrap.sh`,
+which installs those before the steps below.
+
 ```sh
 git clone https://github.com/MakerEyeLabs/makereye.git
 cd makereye

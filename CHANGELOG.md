@@ -17,6 +17,10 @@ SemVer once tagged releases begin.
   WebRTC, MJPEG, snapshot). CLI: `run`, `version`, `validate-config`,
   `status`, `stream start/stop/restart`. Config validation with
   actionable errors. Bounded restart behavior for the go2rtc supervisor.
+- `scripts/bootstrap.sh`, installs build-time dependencies (git, make, a
+  Go toolchain matching `go.mod`) missing from stock Raspberry Pi OS
+  Lite, so a fresh Pi can go from `apt-get install git` to a built
+  binary without manually chasing down each prerequisite.
 
 ### Known limitations
 
