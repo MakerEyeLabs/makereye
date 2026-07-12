@@ -21,6 +21,10 @@ SemVer once tagged releases begin.
   Go toolchain matching `go.mod`) missing from stock Raspberry Pi OS
   Lite, so a fresh Pi can go from `apt-get install git` to a built
   binary without manually chasing down each prerequisite.
+- `scripts/quickstart.sh`, chains a clone/pull of this repo with
+  `bootstrap.sh`, `make build`, and `install.sh` so the whole install is
+  a single `curl | sudo bash` command; re-running it pulls the latest
+  commit instead of re-cloning.
 
 ### Known limitations
 

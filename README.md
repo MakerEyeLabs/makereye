@@ -37,34 +37,41 @@ documented in `ROADMAP.md` but not yet implemented.** See
 
 ## Install (Raspberry Pi OS Lite, arm64)
 
-Stock Raspberry Pi OS Lite doesn't include git, make, or a Go toolchain
-new enough to build MakerEye (`go.mod` requires Go 1.24.7+; Debian's
-packaged `golang-go` is normally well behind that). Install git first
-(needed to clone this repo), then let `scripts/bootstrap.sh` install the
-rest:
+Run directly on the Pi:
 
 ```sh
-sudo apt-get update && sudo apt-get install -y git
+curl -fsSL https://raw.githubusercontent.com/MakerEyeLabs/makereye/main/scripts/quickstart.sh | sudo bash
+```
+
+This clones (or updates) MakerEye into `/opt/makereye-src`, installs
+build prerequisites, builds the binary, and installs it as a systemd
+service. It's safe to re-run (pulls the latest commit instead of
+re-cloning, and never touches an existing config).
+
+Stock Raspberry Pi OS Lite doesn't include git, make, or a Go toolchain
+new enough to build MakerEye (`go.mod` requires Go 1.24.7+; Debian's
+packaged `golang-go` is normally well behind that), `quickstart.sh`
+installs all three along the way. Under the hood it's just:
+
+```sh
+sudo apt-get update && sudo apt-get install -y git   # only needed to clone
 git clone https://github.com/MakerEyeLabs/makereye.git
 cd makereye
 sudo ./scripts/bootstrap.sh    # installs make + a Go toolchain matching go.mod
-source /etc/profile.d/makereye-go.sh   # picks up `go` in this shell, if it was just installed
-```
-
-Then build and install MakerEye itself:
-
-```sh
+                                # (also installs git; redundant with the
+                                # line above, which only exists to clone)
+export PATH="$PATH:/usr/local/go/bin"   # or: source /etc/profile.d/makereye-go.sh
 make build-arm64          # cross-compiles ./bin/makereye-linux-arm64,
                            # or build directly on the Pi with `make build`
 sudo ./scripts/install.sh ./bin/makereye-linux-arm64
 ```
 
-`scripts/bootstrap.sh` is safe to re-run and skips the Go install if an
-adequate toolchain is already on `PATH`. It only installs build
-dependencies, not MakerEye's runtime dependencies (those come from
-`scripts/install.sh` below).
+If you'd rather not pipe a script from the network straight into `sudo
+bash`, run the individual steps above instead, they're what
+`quickstart.sh` runs. `scripts/bootstrap.sh` and `scripts/install.sh`
+are each independently safe to re-run.
 
-The installer:
+`scripts/install.sh` (called by both paths above):
 
 - installs `rpicam-apps` and other required apt packages,
 - downloads a matching go2rtc release binary,

@@ -67,10 +67,14 @@ install_packages() {
 	apt-get update -qq
 	# rpicam-apps provides rpicam-vid/rpicam-hello (current camera
 	# tooling; this installer does not use the legacy raspivid stack).
+	# Its libcamera runtime dependency is pulled in automatically by apt
+	# -- don't pin a versioned libcamera0.x package here, its SONAME has
+	# changed across Raspberry Pi OS releases (0.0.5/0.1.0/0.2/0.3/0.4...)
+	# and hardcoding one breaks installs on any release that ships a
+	# different version.
 	# ca-certificates/curl are needed to fetch the go2rtc release.
 	apt-get install -y --no-install-recommends \
 		rpicam-apps \
-		libcamera0.3 \
 		ca-certificates \
 		curl
 }
