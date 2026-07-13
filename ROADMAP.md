@@ -67,11 +67,14 @@ future milestones is not.**
   `go2rtc.auth.password`), see `DESIGN.md` "Security considerations" for
   why, and "Configuration model" for why it isn't split into a separate
   secrets file.
-- **Not yet validated against a real Prusa Connect account/camera by the
-  session that wrote this** (would require a real token). Reference
-  script behavior + unit tests against fake go2rtc/Prusa HTTP servers are
-  the evidence so far; treat "actually shows up correctly in the Prusa
-  Connect dashboard" as unverified until run against a real account.
+- **Validated against a real Prusa Connect account/camera** (MK4,
+  fingerprint/token from a real "Add camera -> Other camera" pairing):
+  uploads succeed and the camera registers correctly. One gotcha worth
+  recording since it looked like a bug at first: Prusa Connect's web
+  dashboard doesn't display webcam footage while the paired printer is
+  offline, even if uploads are succeeding, so "camera shows as
+  registered but no image" during setup is expected if the printer
+  itself isn't on, not a MakerEye or upload problem.
 
 ## Milestone 3, MQTT telemetry and control, NOT STARTED
 
@@ -80,6 +83,14 @@ future milestones is not.**
 - Stream/uploader control via MQTT commands, with acknowledgements.
 - Optional Home Assistant MQTT discovery.
 - Config placeholder already present: `mqtt.enabled`.
+- **Possible addition, not committed yet**: spotlight brightness control
+  as an MQTT command, using `scripts/spotlight_ctl.sh`'s protocol (a
+  Wyze Cam v3 Spotlight Kit accessory driven directly by the Pi over USB,
+  unrelated to the Wyze camera itself). That script is currently
+  standalone and outside `internal/config`/the daemon; if this is picked
+  up, it needs a config section (device path, maybe a default brightness)
+  and a decision on whether it's generic "accessory light" support or
+  Wyze-Spotlight-specific, not just a raw shell-out.
 
 ## Milestone 4, Manual timelapse, NOT STARTED
 

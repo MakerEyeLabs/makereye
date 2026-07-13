@@ -8,6 +8,11 @@ SemVer once tagged releases begin.
 
 ### Added
 
+- `scripts/spotlight_ctl.sh`: standalone brightness control (0-255) for a
+  Wyze Cam v3 Spotlight Kit accessory driven directly over the Pi's USB
+  OTG port. Not wired into `config.yaml`/the daemon, an experiment kept
+  as a utility script; see `ROADMAP.md`'s Milestone 3 notes for the
+  possible future MQTT integration.
 - Milestone 2: Prusa Connect snapshot uploads. `internal/prusaconnect`
   captures a JPEG from go2rtc's own snapshot endpoint and PUTs it to
   Prusa Connect on an interval (`prusa_connect.token`/`fingerprint`/
@@ -15,8 +20,8 @@ SemVer once tagged releases begin.
   reports upload/failure counts; `makereye validate-config` reports
   enabled/disabled without printing the token. Token stored as plaintext
   in `config.yaml` for the same reason as `go2rtc.auth.password` (Prusa
-  Connect needs the literal credential). Not yet validated against a real
-  Prusa Connect account, see `ROADMAP.md`.
+  Connect needs the literal credential). Validated against a real Prusa
+  Connect account/camera, see `ROADMAP.md`.
 - Milestone 1: optional `go2rtc.auth.username`/`password` config, passed
   through to go2rtc's own RTSP and HTTP API (WebRTC/MJPEG/snapshot) auth
   for LAN-exposed setups. Stored as plaintext by design (go2rtc needs the

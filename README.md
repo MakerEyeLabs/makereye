@@ -287,6 +287,22 @@ None of these claims should be repeated as "tested" until an operator
 (or a future session with real hardware access) has actually run them —
 see `docs/NEXT_SESSION.md`.
 
+## Optional accessory: Wyze Spotlight Kit
+
+`scripts/spotlight_ctl.sh` drives a Wyze Cam v3 Spotlight Kit's LEDs
+(0-255 brightness) directly from the Pi over USB OTG, unrelated to the
+Wyze camera it's normally sold with, MakerEye's Pi Zero 2 W just talks to
+the spotlight's own USB-serial cable:
+
+```sh
+./scripts/spotlight_ctl.sh 200          # 0 (off) - 255 (max)
+DEVICE=/dev/ttyUSB1 ./scripts/spotlight_ctl.sh 0
+```
+
+This is a standalone experiment, not wired into `config.yaml` or the
+daemon. See `ROADMAP.md`'s Milestone 3 (MQTT) notes for the possible
+future integration (spotlight control as an MQTT command).
+
 ## License
 
 GPLv3, see `LICENSE`. Third-party dependency licenses are noted in
