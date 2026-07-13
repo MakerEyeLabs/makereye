@@ -8,6 +8,15 @@ SemVer once tagged releases begin.
 
 ### Added
 
+- Milestone 2: Prusa Connect snapshot uploads. `internal/prusaconnect`
+  captures a JPEG from go2rtc's own snapshot endpoint and PUTs it to
+  Prusa Connect on an interval (`prusa_connect.token`/`fingerprint`/
+  `interval_seconds`). CLI: `prusa start/stop/restart`; `makereye status`
+  reports upload/failure counts; `makereye validate-config` reports
+  enabled/disabled without printing the token. Token stored as plaintext
+  in `config.yaml` for the same reason as `go2rtc.auth.password` (Prusa
+  Connect needs the literal credential). Not yet validated against a real
+  Prusa Connect account, see `ROADMAP.md`.
 - Milestone 1: optional `go2rtc.auth.username`/`password` config, passed
   through to go2rtc's own RTSP and HTTP API (WebRTC/MJPEG/snapshot) auth
   for LAN-exposed setups. Stored as plaintext by design (go2rtc needs the
@@ -51,6 +60,5 @@ SemVer once tagged releases begin.
   default; default config binds them to loopback only. Optional
   username/password auth is available (see `README.md` "Network exposure
   and security") but is off unless explicitly configured.
-- Milestones 2-8 (Prusa Connect uploads, MQTT, timelapses, PrusaLink,
-  motion detection, AI monitoring, web UI) are not implemented; see
-  `ROADMAP.md`.
+- Milestones 3-8 (MQTT, timelapses, PrusaLink, motion detection, AI
+  monitoring, web UI) are not implemented; see `ROADMAP.md`.

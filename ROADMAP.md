@@ -35,18 +35,43 @@ future milestones is not.**
   stored as plaintext deliberately (see `DESIGN.md` "Security
   considerations" for why hashing it would break auth entirely).
 
-## Milestone 2, Prusa Connect uploads, NOT STARTED
+## Milestone 2, Prusa Connect uploads, ✅ DONE
 
-- Capture snapshots from the shared go2rtc pipeline (likely via go2rtc's
-  own snapshot HTTP endpoint, no need to reimplement JPEG capture).
-- Upload to Prusa Connect on an interval.
-- Support registration/manual credential flow per Prusa's documented API
-  (not yet researched in depth, see "Future research questions" below).
-- Track upload state/failures somewhere inspectable (`makereye status`?).
-- Independent start/stop/restart of the uploader, likely following the
-  same control-socket pattern as `stream start/stop/restart`.
-- Config placeholder already present: `prusa_connect.enabled` (no runtime
-  effect yet).
+- `internal/prusaconnect`: `Uploader` captures a JPEG from go2rtc's own
+  `/api/frame.jpeg` snapshot endpoint and PUTs it to Prusa Connect's
+  webcam ingestion endpoint on an interval (`prusa_connect.interval_seconds`,
+  default 10s). Not a subprocess like go2rtc, an in-process goroutine
+  loop (see `DESIGN.md` "Prusa Connect uploader").
+- Credential flow is manual, as anticipated below: no in-app
+  registration/pairing. You create the camera in Prusa Connect's web UI
+  (Cameras -> Add camera -> "Other camera"), which issues a token, and
+  paste it into `prusa_connect.token`. `prusa_connect.fingerprint` is a
+  self-chosen stable identifier, not issued by Prusa.
+- Endpoint/headers (`PUT https://webcam.connect.prusa3d.com/c/snapshot`,
+  `token`/`fingerprint` headers, `image/jpg` content-type) came from a
+  working reference script the project owner had used previously against
+  the real API, not primary Prusa documentation, this resolves the
+  "Future research questions" entry below, though it means the details
+  weren't independently verified against Prusa's docs, only against a
+  script known to work in practice.
+- Upload state tracked and inspectable via `makereye status`
+  (`prusa_connect: phase=... uploads=... failures=...`) and
+  `makereye validate-config` (enabled/disabled + fingerprint, never the
+  token).
+- Independent start/stop/restart via `makereye prusa start/stop/restart`,
+  following the same control-socket pattern as `stream start/stop/restart`
+  (new `ipc.CmdPrusaStart/Stop/Restart`).
+- Upload failures are logged and retried next interval; they never affect
+  camera streaming or crash-loop the daemon, this is an advisory feature.
+- `prusa_connect.token` stored as plaintext in `config.yaml` (like
+  `go2rtc.auth.password`), see `DESIGN.md` "Security considerations" for
+  why, and "Configuration model" for why it isn't split into a separate
+  secrets file.
+- **Not yet validated against a real Prusa Connect account/camera by the
+  session that wrote this** (would require a real token). Reference
+  script behavior + unit tests against fake go2rtc/Prusa HTTP servers are
+  the evidence so far; treat "actually shows up correctly in the Prusa
+  Connect dashboard" as unverified until run against a real account.
 
 ## Milestone 3, MQTT telemetry and control, NOT STARTED
 
@@ -101,9 +126,6 @@ future milestones is not.**
 Recorded here per the Milestone 0/1 session's research boundaries, so the
 next session doesn't have to rediscover that these are open:
 
-- **Prusa Connect**: exact snapshot upload API (endpoint, auth headers,
-  camera "fingerprint"/registration flow, rate limits). Needs primary-doc
-  research at Milestone 2 time.
 - **PrusaLink**: local API surface for job state (endpoints, auth,
   whether it's REST/websocket, how job start/end is best detected).
   Needed at Milestone 5.

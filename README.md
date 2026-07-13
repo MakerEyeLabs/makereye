@@ -11,20 +11,23 @@ MakerEye is Prusa-first (Prusa Connect uploads, PrusaLink-triggered
 timelapses) but its core camera/streaming functionality is not tied to
 Prusa specifically.
 
-**Current status: Milestone 0 (repository foundation) and Milestone 1
-(camera streaming) are implemented. Later milestones (Prusa Connect
-uploads, MQTT, timelapses, motion detection, AI monitoring, web UI) are
-documented in `ROADMAP.md` but not yet implemented.** See
-`docs/NEXT_SESSION.md` for exactly what has and hasn't been validated.
+**Current status: Milestone 0 (repository foundation), Milestone 1
+(camera streaming), and Milestone 2 (Prusa Connect uploads) are
+implemented. Later milestones (MQTT, timelapses, motion detection, AI
+monitoring, web UI) are documented in `ROADMAP.md` but not yet
+implemented.** See `docs/NEXT_SESSION.md` for exactly what has and
+hasn't been validated.
 
-## What Milestone 1 gives you
+## What's implemented
 
 - A `makereye` daemon that manages a Raspberry Pi Camera Module 3
   pipeline via `rpicam-vid` and exposes it through
   [go2rtc](https://github.com/AlexxIT/go2rtc): RTSP, WebRTC, MJPEG, and
-  JPEG snapshots.
+  JPEG snapshots. Optional username/password auth on those endpoints.
+- Periodic snapshot uploads to Prusa Connect, pulled from the same
+  go2rtc pipeline.
 - A small CLI (`run`, `version`, `validate-config`, `status`, `stream
-  start/stop/restart`).
+  start/stop/restart`, `prusa start/stop/restart`).
 - systemd integration (`makereye.service`) and an install script for
   fresh Raspberry Pi OS Lite installs.
 
@@ -120,7 +123,13 @@ makereye status [-config path]           Show daemon and stream status
 makereye stream start [-config path]     Start the camera stream
 makereye stream stop [-config path]      Stop the camera stream
 makereye stream restart [-config path]   Restart the camera stream
+makereye prusa start [-config path]      Start Prusa Connect snapshot uploads
+makereye prusa stop [-config path]       Stop Prusa Connect snapshot uploads
+makereye prusa restart [-config path]    Restart Prusa Connect snapshot uploads
 ```
+
+`prusa start`/`restart` fail if `prusa_connect.enabled` is `false` in
+config; flip that to `true` (with `token`/`fingerprint` set) first.
 
 `stream start/stop/restart` and `status` talk to the *running*
 `makereye.service` daemon over a local control socket
@@ -189,6 +198,53 @@ the HTTP-based endpoints; RTSP is a different protocol and needs an
 RTSP-aware proxy, not a plain HTTP one), or rely purely on network-level
 restrictions (firewall rules, VLAN isolation, a WireGuard/Tailscale
 tunnel instead of exposing the ports directly).
+
+## Prusa Connect uploads
+
+MakerEye can periodically capture a JPEG snapshot from its own go2rtc
+pipeline (`GET /api/frame.jpeg`) and upload it to Prusa Connect's webcam
+ingestion endpoint, so your printer's Prusa Connect dashboard shows a
+live-ish camera feed without a separate uploader process.
+
+### Getting a token and fingerprint
+
+MakerEye doesn't perform camera registration/pairing itself. In Prusa
+Connect's web UI: **Cameras -> Add camera -> "Other camera"**. That
+issues a **token**, paste it into `prusa_connect.token`. For
+**fingerprint**, pick any stable, unique string at least 16 characters
+(e.g. `makereye-<device.name>-01`) and put the same value in
+`prusa_connect.fingerprint` — it's not a secret, just an identifier;
+Prusa Connect treats a fingerprint change as a different camera.
+
+### Configuration
+
+```yaml
+prusa_connect:
+  enabled: true
+  token: "<token from Prusa Connect>"
+  fingerprint: "makereye-mk4-01"
+  interval_seconds: 10
+```
+
+Then `sudo systemctl restart makereye` (or `makereye prusa restart` if
+the daemon is already running with `enabled: true`). `makereye status`
+shows upload counts/failures:
+
+```
+prusa_connect: phase=running uploads=42 failures=0
+```
+
+Upload failures (bad token, network blip, Prusa Connect unreachable) are
+logged and retried on the next interval, they never affect camera
+streaming, this is an advisory feature independent of it.
+
+### Token storage
+
+Like `go2rtc.auth.password`, `prusa_connect.token` is stored **as
+plaintext** in `config.yaml`, not hashed: Prusa Connect's API takes it as
+a literal bearer credential on every upload, so MakerEye must hold the
+real value to use it. `config.yaml` is `0640 makereye:makereye`; treat it
+like any other credential file.
 
 ## Hardware validation
 

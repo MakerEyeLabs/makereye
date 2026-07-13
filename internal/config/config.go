@@ -17,21 +17,21 @@ const DefaultConfigPath = "/etc/makereye/config.yaml"
 
 // Config is the root MakerEye configuration document.
 type Config struct {
-	Device DeviceConfig `yaml:"device"`
-	Camera CameraConfig `yaml:"camera"`
-	Stream StreamConfig `yaml:"stream"`
-	Go2rtc Go2rtcConfig `yaml:"go2rtc"`
-	System SystemConfig `yaml:"system"`
-
-	// The subsystems below are not implemented in Milestone 1. Their
-	// config sections are accepted and validated only enough to catch
-	// obvious mistakes; setting enabled: true has no runtime effect yet.
+	Device       DeviceConfig       `yaml:"device"`
+	Camera       CameraConfig       `yaml:"camera"`
+	Stream       StreamConfig       `yaml:"stream"`
+	Go2rtc       Go2rtcConfig       `yaml:"go2rtc"`
 	PrusaConnect PrusaConnectConfig `yaml:"prusa_connect"`
-	MQTT         MQTTConfig         `yaml:"mqtt"`
-	Timelapse    TimelapseConfig    `yaml:"timelapse"`
-	PrusaLink    PrusaLinkConfig    `yaml:"prusalink"`
-	Motion       MotionConfig       `yaml:"motion"`
-	AI           AIConfig           `yaml:"ai"`
+	System       SystemConfig       `yaml:"system"`
+
+	// The subsystems below are not implemented yet. Their config
+	// sections are accepted and validated only enough to catch obvious
+	// mistakes; setting enabled: true has no runtime effect yet.
+	MQTT      MQTTConfig      `yaml:"mqtt"`
+	Timelapse TimelapseConfig `yaml:"timelapse"`
+	PrusaLink PrusaLinkConfig `yaml:"prusalink"`
+	Motion    MotionConfig    `yaml:"motion"`
+	AI        AIConfig        `yaml:"ai"`
 }
 
 // DeviceConfig identifies this MakerEye instance.
@@ -128,9 +128,30 @@ type SystemConfig struct {
 	RunDir string `yaml:"run_dir"`
 }
 
-// PrusaConnectConfig is a placeholder for Milestone 2. No runtime effect.
+// PrusaConnectConfig controls periodic snapshot uploads to Prusa Connect's
+// webcam ingestion endpoint.
 type PrusaConnectConfig struct {
 	Enabled bool `yaml:"enabled"`
+
+	// Token is this camera's Prusa Connect upload token. Obtained from
+	// Prusa Connect's web UI (Cameras -> Add camera -> "Other camera"),
+	// which issues a token for a manually-configured camera rather than
+	// MakerEye performing any registration/pairing flow itself.
+	//
+	// Stored as plaintext, not hashed: Prusa Connect's API takes this as
+	// a literal bearer credential in the "token" header on every upload,
+	// so MakerEye must hold the real value to use it, the same
+	// constraint as go2rtc.auth.password (see Go2rtcConfig.Password).
+	Token string `yaml:"token"`
+
+	// Fingerprint is a stable identifier for this camera that Prusa
+	// Connect uses to recognize it across uploads. Any unique string at
+	// least 16 characters works (e.g. "makereye-<device-name>"); changing
+	// it later is treated by Prusa Connect as a different camera.
+	Fingerprint string `yaml:"fingerprint"`
+
+	// IntervalSeconds is how often a snapshot is captured and uploaded.
+	IntervalSeconds int `yaml:"interval_seconds"`
 }
 
 // MQTTConfig is a placeholder for Milestone 3. No runtime effect.
@@ -184,6 +205,10 @@ func Default() *Config {
 			RTSPListen:   "127.0.0.1:8554",
 			WebRTCListen: "127.0.0.1:1984",
 			HTTPListen:   "127.0.0.1:1984",
+		},
+		PrusaConnect: PrusaConnectConfig{
+			Enabled:         false,
+			IntervalSeconds: 10,
 		},
 		System: SystemConfig{
 			LogLevel: "info",
@@ -258,6 +283,14 @@ func (c *Config) Validate() error {
 	check(strings.TrimSpace(c.Go2rtc.HTTPListen) == "", "go2rtc.http_listen must not be empty")
 	check((c.Go2rtc.Auth.Username == "") != (c.Go2rtc.Auth.Password == ""),
 		"go2rtc.auth.username and go2rtc.auth.password must both be set or both left empty")
+
+	if c.PrusaConnect.Enabled {
+		check(strings.TrimSpace(c.PrusaConnect.Token) == "", "prusa_connect.token must not be empty when enabled")
+		check(len(c.PrusaConnect.Fingerprint) < 16,
+			"prusa_connect.fingerprint must be at least 16 characters when enabled, got %d", len(c.PrusaConnect.Fingerprint))
+		check(c.PrusaConnect.IntervalSeconds <= 0,
+			"prusa_connect.interval_seconds must be positive when enabled, got %d", c.PrusaConnect.IntervalSeconds)
+	}
 
 	switch c.System.LogLevel {
 	case "debug", "info", "warn", "error":

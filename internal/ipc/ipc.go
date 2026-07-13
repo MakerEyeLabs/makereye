@@ -1,8 +1,9 @@
 // Package ipc implements the small control protocol MakerEye's CLI uses
 // to talk to the running "makereye run" daemon: a line-delimited JSON
 // request/response exchange over a Unix domain socket. It exists because
-// "stream start/stop/restart" and "status" act on the daemon's live
-// go2rtc supervisor, not a separate process the CLI can manage directly.
+// "stream start/stop/restart", "prusa start/stop/restart", and "status"
+// act on the daemon's live subsystems (go2rtc supervisor, Prusa Connect
+// uploader), not a separate process the CLI can manage directly.
 package ipc
 
 import (
@@ -38,6 +39,9 @@ const (
 	CmdStreamStart   = "stream-start"
 	CmdStreamStop    = "stream-stop"
 	CmdStreamRestart = "stream-restart"
+	CmdPrusaStart    = "prusa-start"
+	CmdPrusaStop     = "prusa-stop"
+	CmdPrusaRestart  = "prusa-restart"
 )
 
 // Handler processes a Request and returns a Response. The daemon supplies

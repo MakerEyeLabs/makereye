@@ -30,6 +30,21 @@ func TestValidateCatchesBadValues(t *testing.T) {
 		{"empty go2rtc binary", func(c *Config) { c.Go2rtc.BinaryPath = "" }, "go2rtc.binary_path"},
 		{"auth username without password", func(c *Config) { c.Go2rtc.Auth.Username = "admin" }, "go2rtc.auth"},
 		{"auth password without username", func(c *Config) { c.Go2rtc.Auth.Password = "hunter2" }, "go2rtc.auth"},
+		{"prusa enabled without token", func(c *Config) {
+			c.PrusaConnect.Enabled = true
+			c.PrusaConnect.Fingerprint = "at-least-16-characters"
+		}, "prusa_connect.token"},
+		{"prusa enabled with short fingerprint", func(c *Config) {
+			c.PrusaConnect.Enabled = true
+			c.PrusaConnect.Token = "tok"
+			c.PrusaConnect.Fingerprint = "short"
+		}, "prusa_connect.fingerprint"},
+		{"prusa enabled with zero interval", func(c *Config) {
+			c.PrusaConnect.Enabled = true
+			c.PrusaConnect.Token = "tok"
+			c.PrusaConnect.Fingerprint = "at-least-16-characters"
+			c.PrusaConnect.IntervalSeconds = 0
+		}, "prusa_connect.interval_seconds"},
 		{"bad log level", func(c *Config) { c.System.LogLevel = "loud" }, "system.log_level"},
 	}
 
@@ -45,6 +60,17 @@ func TestValidateCatchesBadValues(t *testing.T) {
 				t.Fatalf("expected error containing %q, got: %v", tc.wantErr, err)
 			}
 		})
+	}
+}
+
+func TestPrusaConnectValidWhenFullyConfigured(t *testing.T) {
+	cfg := Default()
+	cfg.PrusaConnect.Enabled = true
+	cfg.PrusaConnect.Token = "some-token"
+	cfg.PrusaConnect.Fingerprint = "at-least-16-characters"
+	cfg.PrusaConnect.IntervalSeconds = 10
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected valid config, got error: %v", err)
 	}
 }
 

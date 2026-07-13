@@ -27,5 +27,11 @@ func cmdValidateConfig(args []string) int {
 	}
 	fmt.Printf("  go2rtc: rtsp=%s webrtc=%s http=%s auth=%s\n",
 		cfg.Go2rtc.RTSPListen, cfg.Go2rtc.WebRTCListen, cfg.Go2rtc.HTTPListen, authState)
+	prusaState := "disabled"
+	if cfg.PrusaConnect.Enabled {
+		prusaState = fmt.Sprintf("enabled (fingerprint=%s, every %ds)",
+			cfg.PrusaConnect.Fingerprint, cfg.PrusaConnect.IntervalSeconds)
+	}
+	fmt.Printf("  prusa_connect: %s\n", prusaState)
 	return 0
 }

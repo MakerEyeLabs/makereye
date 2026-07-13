@@ -37,6 +37,8 @@ func run(args []string) int {
 		return cmdStatus(rest)
 	case "stream":
 		return cmdStream(rest)
+	case "prusa":
+		return cmdPrusa(rest)
 	case "help", "-h", "--help":
 		printUsage()
 		return 0
@@ -58,6 +60,9 @@ Usage:
   makereye stream start [-config path]     Start the camera stream
   makereye stream stop [-config path]      Stop the camera stream
   makereye stream restart [-config path]   Restart the camera stream
+  makereye prusa start [-config path]      Start Prusa Connect snapshot uploads
+  makereye prusa stop [-config path]       Stop Prusa Connect snapshot uploads
+  makereye prusa restart [-config path]    Restart Prusa Connect snapshot uploads
 
 The default config path is `+config.DefaultConfigPath+`.
 `)

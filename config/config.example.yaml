@@ -86,6 +86,31 @@ go2rtc:
     username: ""
     password: ""
 
+# Direct Prusa Connect snapshot uploads: MakerEye periodically pulls a
+# JPEG from go2rtc's own snapshot endpoint and PUTs it to Prusa Connect.
+prusa_connect:
+  enabled: false
+
+  # Camera upload token from Prusa Connect's web UI: Cameras -> Add
+  # camera -> "Other camera". MakerEye does not perform any
+  # registration/pairing itself, you create the camera in Prusa Connect
+  # first and paste the token it gives you here.
+  #
+  # Stored as plaintext here, not hashed: Prusa Connect takes this as a
+  # literal bearer credential on every upload, the same constraint as
+  # go2rtc.auth.password above. Treat this file like any other
+  # credential file (0640 makereye:makereye, set by the installer).
+  token: ""
+
+  # Any stable, unique string at least 16 characters, used by Prusa
+  # Connect to recognize this camera across uploads. Not a secret --
+  # changing it later makes Prusa Connect treat it as a different
+  # camera. e.g. "makereye-<device.name>-01".
+  fingerprint: ""
+
+  # How often to capture and upload a snapshot.
+  interval_seconds: 10
+
 # General daemon behavior.
 system:
   log_level: info
@@ -97,10 +122,6 @@ system:
 # accepted and lightly validated but have NO runtime effect yet --
 # setting enabled: true does nothing in this version of MakerEye.
 # --------------------------------------------------------------------
-
-# Milestone 2: direct Prusa Connect snapshot uploads.
-prusa_connect:
-  enabled: false
 
 # Milestone 3: optional MQTT telemetry and control.
 mqtt:

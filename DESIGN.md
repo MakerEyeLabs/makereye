@@ -99,6 +99,41 @@ clients (VLC, browser, Prusa Connect uploader in Milestone 2, etc.)
 - rpicam-vid: camera capture only. Never launched or managed by MakerEye
   directly, always a go2rtc-owned child process.
 
+## Prusa Connect uploader
+
+Unlike go2rtc, `internal/prusaconnect.Uploader` is **not a subprocess**,
+it's a goroutine inside the MakerEye process itself (`Start`/`Stop`
+manage a context-cancelled loop, not an `exec.Cmd`). There's no external
+binary to supervise, restart-loop, or health-check, it's just a periodic
+HTTP client, so the go2rtc `Supervisor`'s process-lifecycle machinery
+(backoff schedule, crash-loop detection, `PhaseFailed`) doesn't apply and
+wasn't reused: a failed upload just gets retried on the next
+`interval_seconds` tick, logged via `State.LastError`/`FailureCount`,
+never a "give up" state. This is deliberate: uploads are advisory, not
+something camera streaming depends on, so there is nothing to protect by
+escalating retry backoff the way a crash-looping subprocess would need.
+
+Each tick does two HTTP calls:
+
+1. `GET http://<go2rtc.http_listen>/api/frame.jpeg?src=<stream.name>` —
+   go2rtc's own snapshot endpoint, the same one `makereye status` prints
+   for external clients. This is always a same-host call to MakerEye's
+   own configured `go2rtc.http_listen`, sent with HTTP Basic Auth
+   whenever `go2rtc.auth` is set, exactly like an external client would
+   need, rather than relying on go2rtc's separate "requests from
+   localhost skip auth" behavior, which is keyed on the request's source
+   address, not on whether go2rtc's listener happens to be bound to
+   loopback, and so isn't reliable to depend on if `go2rtc.http_listen`
+   is ever a LAN address rather than `127.0.0.1`.
+2. `PUT https://webcam.connect.prusa3d.com/c/snapshot` — Prusa Connect's
+   webcam ingestion endpoint (a fixed constant, not user-configurable;
+   there's no self-hosted Prusa Connect to point at instead), with
+   `token`/`fingerprint` headers and the JPEG body. Header names/values
+   and the endpoint itself came from a working reference script the
+   project owner had used previously against the real API, not from
+   Prusa's primary documentation (see `ROADMAP.md`'s former "Future
+   research questions" entry for this, now resolved).
+
 ## Configuration model
 
 - Format: YAML, single file, default path `/etc/makereye/config.yaml`,
@@ -117,13 +152,26 @@ clients (VLC, browser, Prusa Connect uploader in Milestone 2, etc.)
   config on startup" behavior and none should be added without deliberate
   design (it's a common source of surprising diffs and lost comments in
   appliance-style tools).
-- Milestone 1 has no secrets in configuration. Future milestones (MQTT
-  credentials, Prusa Connect tokens) should not be embedded in
-  `config.yaml` as plaintext long-term; when that's designed, prefer a
-  separate file with tighter permissions (e.g. `/etc/makereye/secrets.yaml`,
-  mode `0600`, owned by `makereye:makereye`) over broadening
-  `config.yaml`'s exposure. This is a placeholder decision to revisit in
-  Milestone 2/3, not an implemented mechanism.
+- **Resolved (Milestone 1/2)**: `go2rtc.auth.password` and
+  `prusa_connect.token` live directly in `config.yaml` as plaintext, not
+  in a separate tighter-permissioned file as this note originally
+  floated. Reasoning: both go2rtc and Prusa Connect need the literal
+  credential value to authenticate (see "Security considerations"), so
+  hashing was never on the table; the remaining question was file
+  permissions, not encryption. `config.yaml` is `0640 makereye:makereye`,
+  and in the standard install (`scripts/install.sh`'s `create_user`) the
+  `makereye` group has exactly one member, the `makereye` user itself, so
+  a 0640 group-readable file and a hypothetical 0600 owner-only file
+  protect the same set of principals today. A separate secrets file would
+  only pay for itself if something later adds other members to the
+  `makereye` group, at which point this should be revisited explicitly,
+  not before. Splitting config now, for a threat that doesn't exist in
+  the current install path, is exactly the kind of premature complexity
+  this project avoids elsewhere (see `config.yaml`'s "never rewrites the
+  user's config file" rule above, one file is easier to reason about).
+  Future subsystems with their own credentials (MQTT, PrusaLink) should
+  make this same call explicitly rather than assuming it, if the
+  `makereye` group's membership assumption changes, revisit here first.
 
 ## Service model
 
@@ -202,16 +250,25 @@ clients (VLC, browser, Prusa Connect uploader in Milestone 2, etc.)
   real hardware across a couple of Raspberry Pi OS releases.
 - The control socket (`/run/makereye/control.sock`) is filesystem-permission
   protected (0660, `makereye:makereye`), not further authenticated. Any
-  process running as the `makereye` user or root can issue stream
-  start/stop/restart. This is acceptable for a single-tenant appliance.
+  process running as the `makereye` user or root can issue stream or
+  prusa start/stop/restart. This is acceptable for a single-tenant
+  appliance.
 - MakerEye does not shell out to arbitrary user-supplied commands.
   `internal/camera.BuildArgs` builds an argument list from typed,
   validated config fields (ints, bools, a closed set of enum strings) —
   there is no string concatenation of user input into a shell command.
   `exec.Command` is used with an explicit argv, not `sh -c`.
+- `prusa_connect.token` (in `config.yaml`) is stored as plaintext, the
+  same reasoning and file permissions as `go2rtc.auth.password` above
+  (Prusa Connect's API needs the literal bearer token, hashing it would
+  break every upload). See "Configuration model" above for why this
+  lives in `config.yaml` rather than a separate secrets file.
 - Logs go to stdout/stderr only (journald captures them). Config values
-  are logged sparingly and never include anything secret-shaped; this
-  matters more once Milestone 2/3 introduce actual credentials.
+  are logged sparingly and never include anything secret-shaped:
+  `cmd_validate.go` prints whether `go2rtc.auth`/`prusa_connect` are
+  enabled but never the password/token, and `cmd_status.go` only embeds
+  credentials in the go2rtc stream URLs it prints (flagged as sensitive
+  output there), never in log output.
 
 ## Known hardware assumptions
 

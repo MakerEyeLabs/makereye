@@ -1,6 +1,7 @@
 // Package daemon implements MakerEye's long-running process: it owns the
-// go2rtc supervisor and serves the control socket that the CLI uses for
-// status and stream start/stop/restart commands.
+// go2rtc supervisor and the optional Prusa Connect uploader, and serves
+// the control socket the CLI uses for status and start/stop/restart
+// commands.
 package daemon
 
 import (
@@ -14,14 +15,16 @@ import (
 	"github.com/MakerEyeLabs/makereye/internal/config"
 	"github.com/MakerEyeLabs/makereye/internal/go2rtc"
 	"github.com/MakerEyeLabs/makereye/internal/ipc"
+	"github.com/MakerEyeLabs/makereye/internal/prusaconnect"
 )
 
-// Daemon is the running MakerEye process: it supervises go2rtc and serves
-// the local control socket.
+// Daemon is the running MakerEye process: it supervises go2rtc and the
+// optional Prusa Connect uploader, and serves the local control socket.
 type Daemon struct {
 	cfg        *config.Config
 	logger     *slog.Logger
 	supervisor *go2rtc.Supervisor
+	uploader   *prusaconnect.Uploader
 }
 
 // New creates a Daemon for cfg.
@@ -33,6 +36,7 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 		cfg:        cfg,
 		logger:     logger,
 		supervisor: go2rtc.NewSupervisor(cfg, logger),
+		uploader:   prusaconnect.NewUploader(cfg, logger),
 	}
 }
 
@@ -54,6 +58,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	if err := d.supervisor.Start(ctx); err != nil {
 		return fmt.Errorf("starting go2rtc: %w", err)
+	}
+
+	if d.cfg.PrusaConnect.Enabled {
+		if err := d.uploader.Start(ctx); err != nil {
+			return fmt.Errorf("starting prusa connect uploader: %w", err)
+		}
 	}
 
 	sockPath := SocketPath(d.cfg)
@@ -80,6 +90,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err := d.supervisor.Stop(stopCtx); err != nil {
 		d.logger.Error("error stopping go2rtc", "error", err)
 	}
+	if err := d.uploader.Stop(stopCtx); err != nil {
+		d.logger.Error("error stopping prusa connect uploader", "error", err)
+	}
 	return nil
 }
 
@@ -102,6 +115,27 @@ func (d *Daemon) handle(ctx context.Context, req ipc.Request) ipc.Response {
 			return ipc.Response{OK: false, Error: err.Error()}
 		}
 		return ipc.Response{OK: true, Message: "stream restarted"}
+	case ipc.CmdPrusaStart:
+		if !d.cfg.PrusaConnect.Enabled {
+			return ipc.Response{OK: false, Error: "prusa_connect.enabled is false in config"}
+		}
+		if err := d.uploader.Start(ctx); err != nil {
+			return ipc.Response{OK: false, Error: err.Error()}
+		}
+		return ipc.Response{OK: true, Message: "prusa connect uploader started"}
+	case ipc.CmdPrusaStop:
+		if err := d.uploader.Stop(ctx); err != nil {
+			return ipc.Response{OK: false, Error: err.Error()}
+		}
+		return ipc.Response{OK: true, Message: "prusa connect uploader stopped"}
+	case ipc.CmdPrusaRestart:
+		if !d.cfg.PrusaConnect.Enabled {
+			return ipc.Response{OK: false, Error: "prusa_connect.enabled is false in config"}
+		}
+		if err := d.uploader.Restart(ctx); err != nil {
+			return ipc.Response{OK: false, Error: err.Error()}
+		}
+		return ipc.Response{OK: true, Message: "prusa connect uploader restarted"}
 	default:
 		return ipc.Response{OK: false, Error: fmt.Sprintf("unknown command %q", req.Command)}
 	}
@@ -109,9 +143,16 @@ func (d *Daemon) handle(ctx context.Context, req ipc.Request) ipc.Response {
 
 func (d *Daemon) handleStatus() ipc.Response {
 	st := d.supervisor.Status()
-	msg := fmt.Sprintf("phase=%s pid=%d restarts=%d", st.Phase, st.PID, st.RestartCount)
+	msg := fmt.Sprintf("go2rtc: phase=%s pid=%d restarts=%d", st.Phase, st.PID, st.RestartCount)
 	if st.LastError != "" {
 		msg += " last_error=" + st.LastError
 	}
+
+	pst := d.uploader.Status()
+	msg += fmt.Sprintf("\nprusa_connect: phase=%s uploads=%d failures=%d", pst.Phase, pst.UploadCount, pst.FailureCount)
+	if pst.LastError != "" {
+		msg += " last_error=" + pst.LastError
+	}
+
 	return ipc.Response{OK: true, Status: string(st.Phase), Message: msg}
 }
