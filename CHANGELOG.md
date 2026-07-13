@@ -8,6 +8,14 @@ SemVer once tagged releases begin.
 
 ### Added
 
+- Milestone 1: optional `go2rtc.auth.username`/`password` config, passed
+  through to go2rtc's own RTSP and HTTP API (WebRTC/MJPEG/snapshot) auth
+  for LAN-exposed setups. Stored as plaintext by design (go2rtc needs the
+  literal credential to authenticate clients, not a hash of it); both
+  `config.yaml` and the generated go2rtc config remain
+  `0640 makereye:makereye`. `makereye status` prints URLs with
+  credentials embedded (noted as sensitive output);
+  `makereye validate-config` reports auth on/off without the password.
 - Milestone 0: repository foundation, Go module
   (`github.com/MakerEyeLabs/makereye`), GPLv3 license, `.gitignore`,
   README/DESIGN/ROADMAP docs, example config, systemd unit, install/

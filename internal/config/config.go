@@ -95,6 +95,27 @@ type Go2rtcConfig struct {
 	// serves HTTP, WebRTC signalling, MJPEG, and snapshots on the same
 	// port by default).
 	HTTPListen string `yaml:"http_listen"`
+
+	// Auth optionally protects go2rtc's HTTP API (WebRTC signalling,
+	// MJPEG, snapshot) and RTSP endpoints with a username/password. Empty
+	// Username disables auth, matching go2rtc's own default. See
+	// README.md "Network exposure and security".
+	Auth AuthConfig `yaml:"auth"`
+}
+
+// AuthConfig is a username/password pair passed straight through to
+// go2rtc's own HTTP Basic Auth (API) and RTSP auth.
+type AuthConfig struct {
+	Username string `yaml:"username"`
+
+	// Password is stored as configured, not hashed. go2rtc compares it
+	// directly against the plaintext credential clients submit and has
+	// no support for verifying against a password hash, so MakerEye
+	// cannot pre-hash it here without silently breaking authentication
+	// for every client. This file (and the go2rtc config MakerEye
+	// generates from it) should be handled like any other credential
+	// file; the installer already restricts both to 0640 makereye:makereye.
+	Password string `yaml:"password"`
 }
 
 // SystemConfig controls general daemon behavior.
@@ -235,6 +256,8 @@ func (c *Config) Validate() error {
 	check(strings.TrimSpace(c.Go2rtc.RTSPListen) == "", "go2rtc.rtsp_listen must not be empty")
 	check(strings.TrimSpace(c.Go2rtc.WebRTCListen) == "", "go2rtc.webrtc_listen must not be empty")
 	check(strings.TrimSpace(c.Go2rtc.HTTPListen) == "", "go2rtc.http_listen must not be empty")
+	check((c.Go2rtc.Auth.Username == "") != (c.Go2rtc.Auth.Password == ""),
+		"go2rtc.auth.username and go2rtc.auth.password must both be set or both left empty")
 
 	switch c.System.LogLevel {
 	case "debug", "info", "warn", "error":

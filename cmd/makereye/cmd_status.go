@@ -41,5 +41,8 @@ func cmdStatus(args []string) int {
 	fmt.Printf("  webrtc:   %s\n", urls.WebRTC)
 	fmt.Printf("  mjpeg:    %s\n", urls.MJPEG)
 	fmt.Printf("  snapshot: %s\n", urls.Snapshot)
+	if cfg.Go2rtc.Auth.Username != "" {
+		fmt.Println("  (these URLs include your go2rtc.auth credentials -- treat this output as sensitive)")
+	}
 	return 0
 }

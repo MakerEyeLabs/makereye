@@ -21,7 +21,11 @@ func cmdValidateConfig(args []string) int {
 	fmt.Printf("  camera: %dx%d @%dfps, %dkbps, autofocus=%s\n",
 		cfg.Camera.Width, cfg.Camera.Height, cfg.Camera.Framerate, cfg.Camera.BitrateKbps, cfg.Camera.Autofocus)
 	fmt.Printf("  stream: %s\n", cfg.Stream.Name)
-	fmt.Printf("  go2rtc: rtsp=%s webrtc=%s http=%s\n",
-		cfg.Go2rtc.RTSPListen, cfg.Go2rtc.WebRTCListen, cfg.Go2rtc.HTTPListen)
+	authState := "disabled"
+	if cfg.Go2rtc.Auth.Username != "" {
+		authState = fmt.Sprintf("enabled (user=%s)", cfg.Go2rtc.Auth.Username)
+	}
+	fmt.Printf("  go2rtc: rtsp=%s webrtc=%s http=%s auth=%s\n",
+		cfg.Go2rtc.RTSPListen, cfg.Go2rtc.WebRTCListen, cfg.Go2rtc.HTTPListen, authState)
 	return 0
 }

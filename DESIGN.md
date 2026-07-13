@@ -172,12 +172,25 @@ clients (VLC, browser, Prusa Connect uploader in Milestone 2, etc.)
 
 ## Security considerations
 
-- go2rtc's RTSP/WebRTC/MJPEG/snapshot endpoints have **no authentication**
-  in Milestone 1. The example config binds all of them to
-  `127.0.0.1` only, which is the conservative default described in the
-  install/README docs. Exposing them on the LAN (binding to `0.0.0.0` or
-  a LAN address) is a deliberate user choice documented in `README.md`,
-  not something MakerEye does by default.
+- go2rtc's RTSP/WebRTC/MJPEG/snapshot endpoints have **no authentication
+  by default**. The example config binds all of them to `127.0.0.1`
+  only, which is the conservative default described in the install/
+  README docs. Exposing them on the LAN (binding to `0.0.0.0` or a LAN
+  address) is a deliberate user choice documented in `README.md`, not
+  something MakerEye does by default.
+- Optional auth (`go2rtc.auth.username`/`password` in `config.yaml`) is
+  passed straight through to go2rtc's own HTTP Basic Auth (API) and RTSP
+  auth, which MakerEye does not implement itself. The password is stored
+  **as plaintext**, deliberately not hashed: go2rtc authenticates clients
+  by comparing the submitted credential directly against this value and
+  has no support for verifying a password hash, so hashing it in
+  `config.yaml` would silently break authentication for every client
+  rather than adding security. This is consistent with go2rtc's own
+  upstream config, which also expects plaintext. Both `config.yaml` and
+  the generated `/var/lib/makereye/go2rtc.yaml` are `0640
+  makereye:makereye`; that filesystem permission, not a hash, is the
+  actual protection on this credential at rest. See README.md
+  "Network exposure and security" for user-facing guidance.
 - `makereye.service` runs as a dedicated unprivileged `makereye` system
   user (in the `video` group for camera device access), not root.
   `NoNewPrivileges=yes` and `ProtectHome=yes` are set.

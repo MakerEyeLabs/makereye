@@ -4,6 +4,7 @@ package go2rtc
 
 import (
 	"fmt"
+	"net/url"
 
 	"gopkg.in/yaml.v3"
 
@@ -23,7 +24,9 @@ type go2rtcYAML struct {
 }
 
 type rtspSection struct {
-	Listen string `yaml:"listen"`
+	Listen   string `yaml:"listen"`
+	Username string `yaml:"username,omitempty"`
+	Password string `yaml:"password,omitempty"`
 }
 
 type webrtcSection struct {
@@ -31,7 +34,9 @@ type webrtcSection struct {
 }
 
 type apiSection struct {
-	Listen string `yaml:"listen"`
+	Listen   string `yaml:"listen"`
+	Username string `yaml:"username,omitempty"`
+	Password string `yaml:"password,omitempty"`
 }
 
 type logSection struct {
@@ -53,10 +58,18 @@ func Render(cfg *config.Config) ([]byte, error) {
 		Streams: map[string]string{
 			cfg.Stream.Name: source,
 		},
-		RTSP:   rtspSection{Listen: cfg.Go2rtc.RTSPListen},
+		RTSP: rtspSection{
+			Listen:   cfg.Go2rtc.RTSPListen,
+			Username: cfg.Go2rtc.Auth.Username,
+			Password: cfg.Go2rtc.Auth.Password,
+		},
 		WebRTC: webrtcSection{Listen: cfg.Go2rtc.WebRTCListen},
-		API:    apiSection{Listen: cfg.Go2rtc.HTTPListen},
-		Log:    logSection{Format: "text"},
+		API: apiSection{
+			Listen:   cfg.Go2rtc.HTTPListen,
+			Username: cfg.Go2rtc.Auth.Username,
+			Password: cfg.Go2rtc.Auth.Password,
+		},
+		Log: logSection{Format: "text"},
 	}
 
 	out, err := yaml.Marshal(&doc)
@@ -76,12 +89,21 @@ type URLs struct {
 }
 
 // StreamURLs returns the URLs clients use to reach the stream named by
-// cfg.Stream.Name, based on the configured listen addresses.
+// cfg.Stream.Name, based on the configured listen addresses. When
+// cfg.Go2rtc.Auth is set, the credentials are embedded (percent-encoded)
+// in the returned URLs, since that's what RTSP/HTTP clients expect --
+// callers that print these (e.g. `makereye status`) should treat the
+// output as sensitive.
 func StreamURLs(cfg *config.Config) URLs {
+	userinfo := ""
+	if cfg.Go2rtc.Auth.Username != "" {
+		userinfo = url.UserPassword(cfg.Go2rtc.Auth.Username, cfg.Go2rtc.Auth.Password).String() + "@"
+	}
+
 	return URLs{
-		RTSP:     fmt.Sprintf("rtsp://%s/%s", cfg.Go2rtc.RTSPListen, cfg.Stream.Name),
-		WebRTC:   fmt.Sprintf("http://%s/api/webrtc?src=%s", cfg.Go2rtc.WebRTCListen, cfg.Stream.Name),
-		MJPEG:    fmt.Sprintf("http://%s/api/stream.mjpeg?src=%s", cfg.Go2rtc.HTTPListen, cfg.Stream.Name),
-		Snapshot: fmt.Sprintf("http://%s/api/frame.jpeg?src=%s", cfg.Go2rtc.HTTPListen, cfg.Stream.Name),
+		RTSP:     fmt.Sprintf("rtsp://%s%s/%s", userinfo, cfg.Go2rtc.RTSPListen, cfg.Stream.Name),
+		WebRTC:   fmt.Sprintf("http://%s%s/api/webrtc?src=%s", userinfo, cfg.Go2rtc.WebRTCListen, cfg.Stream.Name),
+		MJPEG:    fmt.Sprintf("http://%s%s/api/stream.mjpeg?src=%s", userinfo, cfg.Go2rtc.HTTPListen, cfg.Stream.Name),
+		Snapshot: fmt.Sprintf("http://%s%s/api/frame.jpeg?src=%s", userinfo, cfg.Go2rtc.HTTPListen, cfg.Stream.Name),
 	}
 }

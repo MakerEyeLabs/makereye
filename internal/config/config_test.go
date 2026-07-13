@@ -28,6 +28,8 @@ func TestValidateCatchesBadValues(t *testing.T) {
 		{"empty stream name", func(c *Config) { c.Stream.Name = "" }, "stream.name"},
 		{"stream name with slash", func(c *Config) { c.Stream.Name = "a/b" }, "stream.name"},
 		{"empty go2rtc binary", func(c *Config) { c.Go2rtc.BinaryPath = "" }, "go2rtc.binary_path"},
+		{"auth username without password", func(c *Config) { c.Go2rtc.Auth.Username = "admin" }, "go2rtc.auth"},
+		{"auth password without username", func(c *Config) { c.Go2rtc.Auth.Password = "hunter2" }, "go2rtc.auth"},
 		{"bad log level", func(c *Config) { c.System.LogLevel = "loud" }, "system.log_level"},
 	}
 

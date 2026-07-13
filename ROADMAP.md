@@ -29,6 +29,11 @@ future milestones is not.**
 - systemd unit + install/uninstall scripts.
 - **Not hardware-validated**, see `docs/NEXT_SESSION.md` for the exact
   checklist to run on a real Pi Zero 2 W + Camera Module 3.
+- **Added after initial hardware validation**: optional
+  `go2rtc.auth.username`/`password` in `config.yaml`, passed through to
+  go2rtc's own RTSP/HTTP API auth, for LAN-exposed setups. Password is
+  stored as plaintext deliberately (see `DESIGN.md` "Security
+  considerations" for why hashing it would break auth entirely).
 
 ## Milestone 2, Prusa Connect uploads, NOT STARTED
 

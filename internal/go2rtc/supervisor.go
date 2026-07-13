@@ -208,7 +208,11 @@ func (s *Supervisor) writeConfig() error {
 		return fmt.Errorf("creating go2rtc config directory %q: %w", dir, err)
 	}
 	tmp := s.cfg.Go2rtc.ConfigPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	// 0o640, not 0o644: this file can contain the plaintext
+	// go2rtc.auth.password from config.yaml (see internal/config and
+	// DESIGN.md "Security considerations"), so it must not be
+	// world-readable.
+	if err := os.WriteFile(tmp, data, 0o640); err != nil {
 		return fmt.Errorf("writing go2rtc config: %w", err)
 	}
 	if err := os.Rename(tmp, s.cfg.Go2rtc.ConfigPath); err != nil {

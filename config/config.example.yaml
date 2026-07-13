@@ -71,6 +71,21 @@ go2rtc:
   webrtc_listen: 127.0.0.1:1984
   http_listen: 127.0.0.1:1984
 
+  # Optional username/password for the RTSP and HTTP API (WebRTC
+  # signalling, MJPEG, snapshot) endpoints above -- required if you're
+  # binding any of them to a LAN address rather than loopback. Both must
+  # be set together, or both left empty to disable auth entirely.
+  #
+  # Stored as plaintext here, not hashed: go2rtc compares this value
+  # directly against the credentials clients send and has no support for
+  # verifying a password hash, so MakerEye can't pre-hash it without
+  # breaking login for every client. Treat this file (0640
+  # makereye:makereye, set by the installer) like any other credential
+  # file. See README.md "Network exposure and security".
+  auth:
+    username: ""
+    password: ""
+
 # General daemon behavior.
 system:
   log_level: info

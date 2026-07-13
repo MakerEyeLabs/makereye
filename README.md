@@ -146,21 +146,49 @@ testing on a Pi with a display, or over SSH port-forwarding.
 
 ### Network exposure and security
 
-**The RTSP/WebRTC/MJPEG/snapshot endpoints have no authentication in this
-milestone.** The example config binds all of them to `127.0.0.1` only —
+**The RTSP/WebRTC/MJPEG/snapshot endpoints have no authentication by
+default.** The example config binds all of them to `127.0.0.1` only —
 they are not reachable from your LAN by default. If you want to view the
 stream from another device, either:
 
 - SSH-tunnel to the Pi (`ssh -L 8554:localhost:8554 -L 1984:localhost:1984 pi@<host>`), or
 - deliberately change `go2rtc.rtsp_listen` / `webrtc_listen` /
-  `http_listen` in your config to a LAN-reachable address, understanding
-  that anyone on that network segment can then view (and, for WebRTC/API,
-  potentially reconfigure) the stream. Treat this the same as any other
-  unauthenticated camera on your network, keep it on a trusted LAN/VLAN.
+  `http_listen` in your config to a LAN-reachable address **and** set
+  `go2rtc.auth.username` / `go2rtc.auth.password` (see below), or
+- change the listen addresses without setting `auth`, understanding that
+  anyone on that network segment can then view (and, for WebRTC/API,
+  potentially reconfigure) the stream unauthenticated. Treat this the
+  same as any other unauthenticated camera on your network, keep it on a
+  trusted LAN/VLAN.
 
-Adding authentication to these endpoints is out of scope for Milestone 1;
-if you need it now, put a reverse proxy with auth in front, or rely on
-network-level restrictions (firewall rules, VLAN isolation).
+#### Authentication
+
+Setting `go2rtc.auth.username` and `go2rtc.auth.password` in
+`config.yaml` protects the RTSP endpoint and the HTTP API (WebRTC
+signalling, MJPEG, snapshot) with a username/password, passed straight
+through to go2rtc's own auth. Both fields must be set together (or both
+left empty to disable auth, the default). `makereye validate-config`
+shows whether auth is enabled (without printing the password);
+`makereye status` prints the actual stream URLs with the credentials
+embedded, so treat that command's output as sensitive.
+
+The password is stored **as plaintext**, not hashed, in both
+`config.yaml` and the go2rtc config MakerEye generates from it
+(`/var/lib/makereye/go2rtc.yaml`). This isn't an oversight: go2rtc
+authenticates clients by comparing the credential they send directly
+against this value, and has no support for checking against a password
+hash, so hashing it here would silently make every login fail. Both
+files are already restricted to `0640 makereye:makereye` by the
+installer; treat them like any other credential file (e.g. don't commit
+`config.yaml` with a real password to a public repo, don't back it up
+somewhere less trusted than the Pi itself).
+
+If you want authentication without trusting this plaintext-storage
+model, put a reverse proxy with its own auth in front instead (works for
+the HTTP-based endpoints; RTSP is a different protocol and needs an
+RTSP-aware proxy, not a plain HTTP one), or rely purely on network-level
+restrictions (firewall rules, VLAN isolation, a WireGuard/Tailscale
+tunnel instead of exposing the ports directly).
 
 ## Hardware validation
 
