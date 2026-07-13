@@ -34,13 +34,23 @@ SemVer once tagged releases begin.
   a single `curl | sudo bash` command; re-running it pulls the latest
   commit instead of re-cloning.
 
+### Fixed
+
+- `scripts/install.sh` was missing `ffmpeg` from the installed apt
+  packages. go2rtc shells out to it for several internal code paths
+  (transcoding, some snapshot/recording sources) even though MakerEye's
+  own `exec:rpicam-vid` source doesn't call it directly; without it,
+  those go2rtc code paths failed. Found during real hardware validation.
+
 ### Known limitations
 
-- Not yet validated against real Raspberry Pi hardware, see
+- Not yet fully validated against real Raspberry Pi hardware, see
   `docs/NEXT_SESSION.md` and the "Hardware validation" section of
   `README.md`.
-- go2rtc endpoints (RTSP/WebRTC/MJPEG/snapshot) have no authentication;
-  default config binds them to loopback only.
+- go2rtc endpoints (RTSP/WebRTC/MJPEG/snapshot) have no authentication by
+  default; default config binds them to loopback only. Optional
+  username/password auth is available (see `README.md` "Network exposure
+  and security") but is off unless explicitly configured.
 - Milestones 2-8 (Prusa Connect uploads, MQTT, timelapses, PrusaLink,
   motion detection, AI monitoring, web UI) are not implemented; see
   `ROADMAP.md`.

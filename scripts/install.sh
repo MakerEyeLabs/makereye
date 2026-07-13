@@ -72,9 +72,14 @@ install_packages() {
 	# changed across Raspberry Pi OS releases (0.0.5/0.1.0/0.2/0.3/0.4...)
 	# and hardcoding one breaks installs on any release that ships a
 	# different version.
+	# ffmpeg is a go2rtc dependency: go2rtc shells out to it for several
+	# internal code paths (transcoding, some snapshot/recording sources)
+	# even though MakerEye's own exec:rpicam-vid source doesn't call it
+	# directly; go2rtc fails those paths silently/confusingly without it.
 	# ca-certificates/curl are needed to fetch the go2rtc release.
 	apt-get install -y --no-install-recommends \
 		rpicam-apps \
+		ffmpeg \
 		ca-certificates \
 		curl
 }
@@ -82,6 +87,9 @@ install_packages() {
 check_camera_tools() {
 	if ! command -v rpicam-vid >/dev/null 2>&1; then
 		warn "rpicam-vid not found on PATH after package install; camera streaming will not work until this is resolved"
+	fi
+	if ! command -v ffmpeg >/dev/null 2>&1; then
+		warn "ffmpeg not found on PATH after package install; some go2rtc code paths will fail until this is resolved"
 	fi
 }
 
