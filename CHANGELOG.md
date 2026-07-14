@@ -8,6 +8,15 @@ SemVer once tagged releases begin.
 
 ### Added
 
+- Milestone 4: lighting framework (`internal/lighting`) with the Wyze
+  Cam v3 Spotlight Kit as the first backend. Configured under
+  `lighting:` as a list of typed lights; controlled via
+  `makereye light <name> <0-255|on|off>` and, with MQTT enabled, as
+  dimmable Home Assistant light entities. Advisory subsystem: unplugged
+  lights are logged and recover on the next command. The Go backend
+  disables tty output post-processing, fixing frame corruption for
+  brightness levels containing byte 0x0A that the reference shell
+  script couldn't send.
 - `scripts/update.sh`: single-command update for a device installed
   from a git checkout — pulls the current branch, rebuilds, reinstalls
   via `install.sh` (so new dependencies are picked up), restarts the

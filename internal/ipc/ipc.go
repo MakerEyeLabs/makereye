@@ -23,6 +23,12 @@ const SocketName = "control.sock"
 // Request is a single command sent from the CLI to the daemon.
 type Request struct {
 	Command string `json:"command"`
+
+	// Light is the target light name for CmdLightSet.
+	Light string `json:"light,omitempty"`
+	// Brightness is the target level for CmdLightSet: "on", "off", or
+	// a number "0"-"255".
+	Brightness string `json:"brightness,omitempty"`
 }
 
 // Response is the daemon's reply to a Request.
@@ -42,6 +48,7 @@ const (
 	CmdPrusaStart    = "prusa-start"
 	CmdPrusaStop     = "prusa-stop"
 	CmdPrusaRestart  = "prusa-restart"
+	CmdLightSet      = "light-set"
 )
 
 // Handler processes a Request and returns a Response. The daemon supplies
@@ -110,6 +117,11 @@ func writeResponse(conn net.Conn, resp Response) {
 // Call connects to the control socket at path, sends command, and returns
 // the daemon's response.
 func Call(ctx context.Context, path, command string) (Response, error) {
+	return CallRequest(ctx, path, Request{Command: command})
+}
+
+// CallRequest is Call for commands that carry parameters.
+func CallRequest(ctx context.Context, path string, req Request) (Response, error) {
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "unix", path)
 	if err != nil {
@@ -124,7 +136,7 @@ func Call(ctx context.Context, path, command string) (Response, error) {
 	}
 
 	enc := json.NewEncoder(conn)
-	if err := enc.Encode(Request{Command: command}); err != nil {
+	if err := enc.Encode(req); err != nil {
 		return Response{}, fmt.Errorf("sending command: %w", err)
 	}
 

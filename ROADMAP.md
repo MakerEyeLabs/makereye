@@ -165,42 +165,45 @@ same plumbing instead of building their own.
   HA's Mosquitto add-on was missing credentials, the add-on rejects
   anonymous connections by default (per README's MQTT section).
 
-## Milestone 4 — Lighting framework + Wyze Spotlight Kit — NOT STARTED
+## Milestone 4 — Lighting framework + Wyze Spotlight Kit — IMPLEMENTED, awaiting hardware validation
 
 Lighting is a framework with pluggable backends, not a one-off Wyze
-integration — but this milestone doesn't need to be fully featured: the
-deliverable is the framework plus one working backend (the Wyze
-Spotlight Kit), with the config shaped so more backend types can be
-added later without breaking existing setups. Lands before timelapse so
-timelapse can build on it.
+integration. The deliverable is the framework plus one working backend
+(the Wyze Spotlight Kit), with the config shaped so more backend types
+can be added later without breaking existing setups.
 
-- New optional `lighting:` config section, designed as a list of
-  lights, each with a name, a `type` (first supported type:
-  `wyze_spotlight`), and type-specific settings (for the spotlight:
-  serial device path, default `/dev/ttyUSB0`; default/startup
-  brightness).
-- Backend interface kept small to start: on/off + brightness 0-255.
-  Future backends extend it deliberately (e.g. color for addressable
-  strips), don't design speculatively for them now beyond the
-  type-per-light config shape.
-- First backend, this milestone: **Wyze Cam v3 Spotlight Kit** over USB
-  serial — off-the-shelf, cheap (~$8 on sale as of mid-2026),
-  plug-and-play, its power passthrough cable even powers the Pi Zero,
-  and the protocol is fully reverse-engineered (frame format + checksum
-  in `scripts/spotlight_ctl.sh`, validated against real hardware).
-- Future backend types (later milestones/contributions, not this one):
-  plain GPIO on/off (relay- or MOSFET-driven lights), PWM-dimmed GPIO,
-  addressable LED strips (WS2812 etc.).
-- Daemon-owned subsystem (in-process, like the Prusa uploader — writes
-  to a device, not a process to supervise). Advisory: a missing or
-  unplugged light is logged, never affects streaming.
-- CLI: control via the control socket (e.g. `makereye light <name>
-  <0-255|on|off>`).
+- `internal/lighting`: `Manager` (named lights, last-commanded-state
+  tracking, "on" restores last non-zero brightness) + `Backend`
+  interface (`SetBrightness(0-255)`), kept minimal until a real second
+  backend needs more. See `DESIGN.md` "Lighting".
+- `lighting:` config section: list of typed lights
+  (`type: wyze_spotlight`, per-light `device` defaulting to
+  `/dev/ttyUSB0`, `startup_brightness` applied at daemon start since
+  the hardware is write-only).
+- First backend: **Wyze Cam v3 Spotlight Kit** over USB serial —
+  off-the-shelf, cheap (~$8 on sale as of mid-2026), plug-and-play, its
+  power passthrough cable even powers the Pi Zero, protocol fully
+  reverse-engineered (frame + 16-bit additive checksum, validated on
+  real hardware). The Go backend also fixes a latent bug in the
+  reference shell script: tty output post-processing is disabled so
+  frames containing 0x0A aren't corrupted.
+- Future backend types (later contributions, not this milestone): plain
+  GPIO on/off, PWM-dimmed GPIO, addressable LED strips (WS2812 etc.).
+- Advisory subsystem: unplugged/missing lights are logged and recover
+  on the next command (device opened per write); startup-brightness
+  failures tolerated; never affects streaming. Daemon shutdown leaves
+  lights as-is so restarts/updates don't flap them.
+- CLI: `makereye light <name> <0-255|on|off>` via the control socket
+  (`ipc.CmdLightSet`).
 - MQTT/HA (per the usability rule, same milestone): each configured
-  light appears as a dimmable HA light entity via discovery, riding on
-  Milestone 3's plumbing.
+  light is a dimmable HA light entity via discovery (state + brightness
+  topics, ON restores last brightness).
 - `scripts/spotlight_ctl.sh` remains as the standalone/manual tool and
   protocol documentation.
+- **Awaiting hardware validation**: real spotlight driven through the
+  daemon (CLI + HA dimmer), including brightness levels whose frames
+  contain 0x0A (e.g. 10 and 166), which the shell script couldn't send
+  correctly. Flip to DONE once confirmed.
 
 ## Milestone 5 — Manual timelapse — NOT STARTED
 

@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -48,7 +49,8 @@ type Status struct {
 // Hooks are the daemon operations the bridge dispatches MQTT commands
 // to. They mirror the control-socket commands; the daemon wires them to
 // the same internals. Prusa hooks may be nil when Prusa Connect is
-// disabled, in which case no Prusa entities are published.
+// disabled, and light hooks when lighting is disabled, in which case
+// the corresponding entities are not published.
 type Hooks struct {
 	StreamStart   func(ctx context.Context) error
 	StreamStop    func(ctx context.Context) error
@@ -56,6 +58,10 @@ type Hooks struct {
 	PrusaStart    func(ctx context.Context) error
 	PrusaStop     func(ctx context.Context) error
 	PrusaRestart  func(ctx context.Context) error
+	LightOn       func(ctx context.Context, name string) error
+	LightOff      func(ctx context.Context, name string) error
+	LightSet      func(ctx context.Context, name string, level int) error
+	LightStates   func() map[string]int
 	Status        func() Status
 }
 
@@ -239,6 +245,14 @@ func (b *Bridge) onConnect(client paho.Client) {
 		client.Subscribe(base+"/prusa/set", 1, b.commandHandler("prusa", b.hooks.PrusaStart, b.hooks.PrusaStop))
 		client.Subscribe(base+"/prusa/restart", 1, b.pressHandler("prusa restart", b.hooks.PrusaRestart))
 	}
+	if b.lightingEnabled() {
+		for _, lc := range b.cfg.Lighting.Lights {
+			name := lc.Name
+			lightBase := base + "/light/" + slug(name)
+			client.Subscribe(lightBase+"/set", 1, b.lightSwitchHandler(name))
+			client.Subscribe(lightBase+"/brightness/set", 1, b.lightBrightnessHandler(name))
+		}
+	}
 
 	// Home Assistant publishes "online" to <discovery_prefix>/status
 	// (its birth message) when it starts. Republishing discovery and
@@ -261,6 +275,51 @@ func (b *Bridge) onConnect(client paho.Client) {
 
 func (b *Bridge) prusaEnabled() bool {
 	return b.cfg.PrusaConnect.Enabled && b.hooks.PrusaStart != nil
+}
+
+func (b *Bridge) lightingEnabled() bool {
+	return b.cfg.Lighting.Enabled && b.hooks.LightSet != nil
+}
+
+// lightSwitchHandler handles HA's ON/OFF light command.
+func (b *Bridge) lightSwitchHandler(name string) paho.MessageHandler {
+	return func(_ paho.Client, msg paho.Message) {
+		payload := strings.ToUpper(strings.TrimSpace(string(msg.Payload())))
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+
+		var err error
+		switch payload {
+		case "ON":
+			err = b.hooks.LightOn(ctx, name)
+		case "OFF":
+			err = b.hooks.LightOff(ctx, name)
+		default:
+			b.logger.Warn("mqtt: unknown light payload", "light", name, "payload", payload)
+			return
+		}
+		if err != nil {
+			b.logger.Warn("mqtt light command failed", "light", name, "payload", payload, "error", err)
+		}
+		b.publishState()
+	}
+}
+
+// lightBrightnessHandler handles HA's numeric brightness command.
+func (b *Bridge) lightBrightnessHandler(name string) paho.MessageHandler {
+	return func(_ paho.Client, msg paho.Message) {
+		level, err := strconv.Atoi(strings.TrimSpace(string(msg.Payload())))
+		if err != nil {
+			b.logger.Warn("mqtt: non-numeric brightness payload", "light", name, "payload", string(msg.Payload()))
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+		if err := b.hooks.LightSet(ctx, name, level); err != nil {
+			b.logger.Warn("mqtt light brightness command failed", "light", name, "level", level, "error", err)
+		}
+		b.publishState()
+	}
 }
 
 // commandHandler dispatches an ON/OFF switch command to the start/stop
@@ -322,6 +381,17 @@ func (b *Bridge) publishState() {
 	client.Publish(base+"/stream/state", 0, false, onOff(st.StreamPhase))
 	if b.prusaEnabled() {
 		client.Publish(base+"/prusa/state", 0, false, onOff(st.PrusaPhase))
+	}
+	if b.lightingEnabled() {
+		for name, level := range b.hooks.LightStates() {
+			lightBase := base + "/light/" + slug(name)
+			state := "OFF"
+			if level > 0 {
+				state = "ON"
+			}
+			client.Publish(lightBase+"/state", 0, false, state)
+			client.Publish(lightBase+"/brightness", 0, false, strconv.Itoa(level))
+		}
 	}
 }
 
@@ -413,6 +483,20 @@ func (b *Bridge) discoveryConfigs() map[string][]byte {
 				"value_template": "{{ value_json.prusa_failures }}",
 				"state_class":    "total_increasing",
 			})
+	}
+	if b.lightingEnabled() {
+		for _, lc := range b.cfg.Lighting.Lights {
+			lightSlug := slug(lc.Name)
+			lightBase := base + "/light/" + lightSlug
+			configs[fmt.Sprintf("%s/light/%s/light_%s/config", b.cfg.MQTT.DiscoveryPrefix, node, lightSlug)] = merge(
+				common(lc.Name, "light_"+lightSlug), map[string]any{
+					"state_topic":              lightBase + "/state",
+					"command_topic":            lightBase + "/set",
+					"brightness_state_topic":   lightBase + "/brightness",
+					"brightness_command_topic": lightBase + "/brightness/set",
+					"brightness_scale":         255,
+				})
+		}
 	}
 
 	out := make(map[string][]byte, len(configs))

@@ -167,6 +167,40 @@ logged rather than failing `daemon.Run`.
   no broker needed, same boundary-faking philosophy as the go2rtc
   supervisor tests.
 
+## Lighting
+
+`internal/lighting.Manager` is another advisory in-process subsystem:
+named lights with pluggable backends behind a one-method interface
+(`SetBrightness(0-255)`), controllable from the CLI (control socket
+`light-set`) and, with MQTT enabled, as dimmable Home Assistant light
+entities.
+
+- **Framework, not a one-off**: each configured light has a `type`
+  selecting its backend. First (only) backend: `wyze_spotlight`, the
+  Wyze Cam v3 Spotlight Kit over USB serial. GPIO on/off, PWM-dimmed
+  GPIO, and addressable LED strips are anticipated types; the config
+  shape (list of typed lights) exists so adding them doesn't churn
+  existing setups. The backend interface stays minimal until a real
+  second backend needs more (color, effects).
+- **Write-only hardware**: the Wyze spotlight's state can't be read
+  back, so the manager tracks the last *commanded* brightness as the
+  state of record, applies a configured `startup_brightness` at daemon
+  start to put hardware in a known state, and remembers the last
+  non-zero level so "on" restores the previous brightness.
+- **Wyze serial details**: frame `aa 55 43 05 16 <level> 07 <sum_hi>
+  <sum_lo>` (16-bit big-endian additive checksum, validated by the
+  device; reverse-engineered against real hardware, see
+  `scripts/spotlight_ctl.sh`). The device is opened per write, so an
+  unplugged/replugged spotlight recovers on the next command with no
+  reconnect logic. Output post-processing (`OPOST`) is disabled via
+  termios before writing: ONLCR would rewrite any 0x0A byte in a frame
+  to 0x0D 0x0A, silently corrupting the two brightness levels whose
+  frame contains 0x0A -- the reference shell script has that latent
+  bug; the Go backend does not.
+- **Shutdown behavior**: `Stop` leaves lights in their current state on
+  purpose. Turning everything off on daemon shutdown would flap the
+  lighting on every service restart and update.
+
 ## Configuration model
 
 - Format: YAML, single file, default path `/etc/makereye/config.yaml`,

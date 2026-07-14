@@ -56,6 +56,26 @@ func TestValidateCatchesBadValues(t *testing.T) {
 			c.MQTT.BrokerURL = "tcp://host:1883"
 			c.MQTT.TopicPrefix = "makereye/#"
 		}, "mqtt.topic_prefix"},
+		{"lighting enabled without lights", func(c *Config) { c.Lighting.Enabled = true }, "lighting.lights"},
+		{"light with empty name", func(c *Config) {
+			c.Lighting.Enabled = true
+			c.Lighting.Lights = []LightConfig{{Name: "", Type: LightTypeWyzeSpotlight}}
+		}, "lighting.lights[0].name"},
+		{"light with bad type", func(c *Config) {
+			c.Lighting.Enabled = true
+			c.Lighting.Lights = []LightConfig{{Name: "spot", Type: "lava_lamp"}}
+		}, "lighting.lights[0].type"},
+		{"duplicate light names", func(c *Config) {
+			c.Lighting.Enabled = true
+			c.Lighting.Lights = []LightConfig{
+				{Name: "spot", Type: LightTypeWyzeSpotlight},
+				{Name: "spot", Type: LightTypeWyzeSpotlight},
+			}
+		}, "duplicated"},
+		{"light startup brightness out of range", func(c *Config) {
+			c.Lighting.Enabled = true
+			c.Lighting.Lights = []LightConfig{{Name: "spot", Type: LightTypeWyzeSpotlight, StartupBrightness: 300}}
+		}, "startup_brightness"},
 		{"bad log level", func(c *Config) { c.System.LogLevel = "loud" }, "system.log_level"},
 	}
 

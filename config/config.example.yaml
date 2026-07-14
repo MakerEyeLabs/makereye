@@ -146,6 +146,24 @@ mqtt:
   # unless you changed it in HA's MQTT integration settings.
   discovery_prefix: homeassistant
 
+# Optional lighting control: named lights MakerEye can switch and dim
+# via the CLI (makereye light <name> <0-255|on|off>) and, with mqtt
+# enabled, as dimmable Home Assistant light entities. Advisory: an
+# unplugged light is logged and never affects streaming.
+lighting:
+  enabled: false
+  # lights:
+  #   - name: spotlight
+  #     # Backend type. Supported: wyze_spotlight (Wyze Cam v3
+  #     # Spotlight Kit over USB serial; see scripts/spotlight_ctl.sh
+  #     # for the protocol). GPIO and addressable-LED types are planned.
+  #     type: wyze_spotlight
+  #     # USB serial device; empty means /dev/ttyUSB0.
+  #     device: /dev/ttyUSB0
+  #     # Brightness (0-255) applied at daemon start so the write-only
+  #     # hardware is in a known state. 0 = off.
+  #     startup_brightness: 0
+
 # --------------------------------------------------------------------
 # The sections below are placeholders for future milestones. They are
 # accepted and lightly validated but have NO runtime effect yet --

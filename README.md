@@ -11,12 +11,12 @@ MakerEye is Prusa-first (Prusa Connect uploads, PrusaLink-triggered
 timelapses) but its core camera/streaming functionality is not tied to
 Prusa specifically.
 
-**Current status: Milestone 0 (repository foundation), Milestone 1
-(camera streaming), and Milestone 2 (Prusa Connect uploads) are
-implemented. Later milestones (MQTT/Home Assistant, lighting,
-timelapses, web UI, motion detection, AI monitoring) are documented in
-`ROADMAP.md` but not yet implemented.** See `docs/NEXT_SESSION.md` for
-exactly what has and hasn't been validated.
+**Current status: Milestones 0-4 (repository foundation, camera
+streaming, Prusa Connect uploads, MQTT/Home Assistant, lighting) are
+implemented. Later milestones (timelapses, web UI, motion detection,
+AI monitoring) are documented in `ROADMAP.md` but not yet
+implemented.** See `docs/NEXT_SESSION.md` for exactly what has and
+hasn't been validated.
 
 ## What's implemented
 
@@ -26,8 +26,12 @@ exactly what has and hasn't been validated.
   JPEG snapshots. Optional username/password auth on those endpoints.
 - Periodic snapshot uploads to Prusa Connect, pulled from the same
   go2rtc pipeline.
+- Optional MQTT + Home Assistant integration: the device and its
+  controls appear in HA automatically via MQTT discovery.
+- Optional lighting control (first backend: Wyze Cam v3 Spotlight Kit
+  over USB serial), from the CLI and as dimmable HA light entities.
 - A small CLI (`run`, `version`, `validate-config`, `status`, `stream
-  start/stop/restart`, `prusa start/stop/restart`).
+  start/stop/restart`, `prusa start/stop/restart`, `light`).
 - systemd integration (`makereye.service`) and an install script for
   fresh Raspberry Pi OS Lite installs.
 
@@ -141,6 +145,7 @@ makereye stream restart [-config path]   Restart the camera stream
 makereye prusa start [-config path]      Start Prusa Connect snapshot uploads
 makereye prusa stop [-config path]       Stop Prusa Connect snapshot uploads
 makereye prusa restart [-config path]    Restart Prusa Connect snapshot uploads
+makereye light <name> <0-255|on|off>     Set a configured light's brightness
 ```
 
 `prusa start`/`restart` fail if `prusa_connect.enabled` is `false` in
@@ -294,6 +299,8 @@ duplicate. The discovered device has:
 - a **Stream** switch and a **Restart stream** button,
 - a **Prusa Connect uploads** switch and restart button (only when
   `prusa_connect.enabled` is true),
+- a dimmable **light entity** per configured light (when
+  `lighting.enabled` is true),
 - sensors: stream phase, Prusa upload/failure counts,
 - availability wiring, so everything shows "unavailable" if the daemon
   or the Pi goes down.
@@ -355,22 +362,54 @@ None of these claims should be repeated as "tested" until an operator
 (or a future session with real hardware access) has actually run them —
 see `docs/NEXT_SESSION.md`.
 
-## Optional accessory: Wyze Spotlight Kit
+## Lighting
 
-`scripts/spotlight_ctl.sh` drives a Wyze Cam v3 Spotlight Kit's LEDs
-(0-255 brightness) directly from the Pi over USB OTG, unrelated to the
-Wyze camera it's normally sold with, MakerEye's Pi Zero 2 W just talks to
-the spotlight's own USB-serial cable:
+Good lighting is half of good camera output, so MakerEye can control
+named lights natively. Configure them under `lighting:` in
+`config.yaml`:
+
+```yaml
+lighting:
+  enabled: true
+  lights:
+    - name: spotlight
+      type: wyze_spotlight     # first supported backend
+      device: /dev/ttyUSB0     # default
+      startup_brightness: 0    # applied at daemon start (0 = off)
+```
+
+Control from the CLI:
+
+```sh
+makereye light spotlight on      # restores last-used brightness
+makereye light spotlight 128     # 0-255
+makereye light spotlight off
+```
+
+With `mqtt.enabled`, every configured light also appears in Home
+Assistant as a **dimmable light entity** (brightness slider) on the
+MakerEye device — lighting schedules and print-triggered lighting are
+then plain HA automations.
+
+The first supported backend is the **Wyze Cam v3 Spotlight Kit**: an
+off-the-shelf, cheap USB accessory whose power-passthrough cable also
+powers the Pi Zero, driven over its USB serial interface with a
+reverse-engineered protocol (full 0-255 brightness, not just the
+high/low/off the Wyze firmware exposes). GPIO-driven lights and
+addressable LED strips are planned backend types — see `ROADMAP.md`.
+Lighting is advisory: an unplugged light is logged and retried on the
+next command, never affecting streaming. Note the hardware is
+write-only, so MakerEye tracks the last brightness it commanded; the
+`startup_brightness` write at daemon start puts the light in a known
+state.
+
+`scripts/spotlight_ctl.sh` remains as a standalone tool and as the
+protocol documentation:
 
 ```sh
 ./scripts/spotlight_ctl.sh 200          # 0 (off) - 255 (max)
 DEVICE=/dev/ttyUSB1 ./scripts/spotlight_ctl.sh 0
 ```
-
-This is a standalone experiment, not wired into `config.yaml` or the
-daemon. See `ROADMAP.md`'s Milestone 4 (Lighting) for the planned
-integration: a native lighting subsystem with CLI control and a
-dimmable Home Assistant light entity over MQTT.
 
 ## License
 

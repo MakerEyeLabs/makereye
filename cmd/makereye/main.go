@@ -39,6 +39,8 @@ func run(args []string) int {
 		return cmdStream(rest)
 	case "prusa":
 		return cmdPrusa(rest)
+	case "light":
+		return cmdLight(rest)
 	case "help", "-h", "--help":
 		printUsage()
 		return 0
@@ -63,6 +65,7 @@ Usage:
   makereye prusa start [-config path]      Start Prusa Connect snapshot uploads
   makereye prusa stop [-config path]       Stop Prusa Connect snapshot uploads
   makereye prusa restart [-config path]    Restart Prusa Connect snapshot uploads
+  makereye light <name> <0-255|on|off>     Set a configured light's brightness
 
 The default config path is `+config.DefaultConfigPath+`.
 `)

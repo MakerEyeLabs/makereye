@@ -1,9 +1,10 @@
 module github.com/MakerEyeLabs/makereye
 
-go 1.24.7
+go 1.25.0
 
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.1
+	golang.org/x/sys v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

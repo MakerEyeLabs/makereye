@@ -3,6 +3,7 @@ package mqtt
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -133,6 +134,10 @@ func testConfig() *config.Config {
 	cfg.PrusaConnect.Enabled = true
 	cfg.PrusaConnect.Token = "tok"
 	cfg.PrusaConnect.Fingerprint = "at-least-16-characters"
+	cfg.Lighting.Enabled = true
+	cfg.Lighting.Lights = []config.LightConfig{
+		{Name: "spotlight", Type: config.LightTypeWyzeSpotlight},
+	}
 	return cfg
 }
 
@@ -173,6 +178,39 @@ func startTestBridge(t *testing.T, cfg *config.Config) (*Bridge, *fakeClient, *c
 			return Status{StreamPhase: "running", PrusaPhase: "running", PrusaUploads: 7}
 		},
 	}
+	lightLevels := map[string]int{"spotlight": 0}
+	var lightMu sync.Mutex
+	hooks.LightOn = func(_ context.Context, name string) error {
+		c.record("light-on-" + name)(nil)
+		lightMu.Lock()
+		lightLevels[name] = 255
+		lightMu.Unlock()
+		return nil
+	}
+	hooks.LightOff = func(_ context.Context, name string) error {
+		c.record("light-off-" + name)(nil)
+		lightMu.Lock()
+		lightLevels[name] = 0
+		lightMu.Unlock()
+		return nil
+	}
+	hooks.LightSet = func(_ context.Context, name string, level int) error {
+		c.record(fmt.Sprintf("light-set-%s-%d", name, level))(nil)
+		lightMu.Lock()
+		lightLevels[name] = level
+		lightMu.Unlock()
+		return nil
+	}
+	hooks.LightStates = func() map[string]int {
+		lightMu.Lock()
+		defer lightMu.Unlock()
+		out := map[string]int{}
+		for k, v := range lightLevels {
+			out[k] = v
+		}
+		return out
+	}
+
 	b := NewBridge(cfg, testLogger(), hooks)
 	b.newClient = func(opts *paho.ClientOptions) paho.Client { return fc }
 
@@ -324,6 +362,66 @@ func TestUnknownSwitchPayloadIsIgnored(t *testing.T) {
 	h(fc, fakeMessage{payload: []byte("TOGGLE")})
 	if len(c.list()) != 0 {
 		t.Errorf("unknown payload should not dispatch any hook, got %v", c.list())
+	}
+}
+
+func TestLightEntityDiscoveryAndCommands(t *testing.T) {
+	_, fc, c := startTestBridge(t, testConfig())
+
+	// Discovery: a dimmable light entity.
+	recs := fc.publishedTo("homeassistant/light/makereye_bench_printer_1/light_spotlight/config")
+	if len(recs) == 0 {
+		t.Fatal("missing light discovery publish")
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(recs[0].payload, &doc); err != nil {
+		t.Fatalf("light discovery payload not valid JSON: %v", err)
+	}
+	if doc["brightness_scale"] != float64(255) || doc["brightness_command_topic"] == nil {
+		t.Errorf("light discovery should declare brightness support, got %v", doc)
+	}
+
+	// Commands: ON, brightness, OFF.
+	onOffHandler := fc.handlerFor("makereye/bench_printer_1/light/spotlight/set")
+	if onOffHandler == nil {
+		t.Fatal("no handler subscribed for light set topic")
+	}
+	brightnessHandler := fc.handlerFor("makereye/bench_printer_1/light/spotlight/brightness/set")
+	if brightnessHandler == nil {
+		t.Fatal("no handler subscribed for light brightness topic")
+	}
+
+	onOffHandler(fc, fakeMessage{payload: []byte("ON")})
+	brightnessHandler(fc, fakeMessage{payload: []byte("128")})
+	onOffHandler(fc, fakeMessage{payload: []byte("OFF")})
+
+	got := strings.Join(c.list(), ",")
+	want := "light-on-spotlight,light-set-spotlight-128,light-off-spotlight"
+	if got != want {
+		t.Errorf("light hook calls = %s, want %s", got, want)
+	}
+
+	// State: after the OFF command the ack publish should show OFF/0.
+	states := fc.publishedTo("makereye/bench_printer_1/light/spotlight/state")
+	if len(states) == 0 || string(states[len(states)-1].payload) != "OFF" {
+		t.Errorf("last light state = %v, want OFF", states)
+	}
+	levels := fc.publishedTo("makereye/bench_printer_1/light/spotlight/brightness")
+	if len(levels) == 0 || string(levels[len(levels)-1].payload) != "0" {
+		t.Errorf("last brightness state = %v, want 0", levels)
+	}
+}
+
+func TestLightEntitiesOmittedWhenDisabled(t *testing.T) {
+	cfg := testConfig()
+	cfg.Lighting.Enabled = false
+	_, fc, _ := startTestBridge(t, cfg)
+
+	if recs := fc.publishedTo("homeassistant/light/makereye_bench_printer_1/light_spotlight/config"); len(recs) != 0 {
+		t.Error("light discovery should not be published when lighting is disabled")
+	}
+	if h := fc.handlerFor("makereye/bench_printer_1/light/spotlight/set"); h != nil {
+		t.Error("light command handler should not be subscribed when lighting is disabled")
 	}
 }
 

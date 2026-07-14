@@ -22,12 +22,13 @@ type Config struct {
 	Stream       StreamConfig       `yaml:"stream"`
 	Go2rtc       Go2rtcConfig       `yaml:"go2rtc"`
 	PrusaConnect PrusaConnectConfig `yaml:"prusa_connect"`
+	MQTT         MQTTConfig         `yaml:"mqtt"`
+	Lighting     LightingConfig     `yaml:"lighting"`
 	System       SystemConfig       `yaml:"system"`
 
 	// The subsystems below are not implemented yet. Their config
 	// sections are accepted and validated only enough to catch obvious
 	// mistakes; setting enabled: true has no runtime effect yet.
-	MQTT      MQTTConfig      `yaml:"mqtt"`
 	Timelapse TimelapseConfig `yaml:"timelapse"`
 	PrusaLink PrusaLinkConfig `yaml:"prusalink"`
 	Motion    MotionConfig    `yaml:"motion"`
@@ -182,6 +183,37 @@ type MQTTConfig struct {
 	DiscoveryPrefix string `yaml:"discovery_prefix"`
 }
 
+// LightTypeWyzeSpotlight drives a Wyze Cam v3 Spotlight Kit over its
+// USB serial interface (see scripts/spotlight_ctl.sh for the protocol).
+const LightTypeWyzeSpotlight = "wyze_spotlight"
+
+// LightingConfig controls the optional lighting subsystem: named
+// lights MakerEye can switch and dim.
+type LightingConfig struct {
+	Enabled bool          `yaml:"enabled"`
+	Lights  []LightConfig `yaml:"lights"`
+}
+
+// LightConfig describes one light. Type selects the backend; the
+// remaining fields are interpreted per type.
+type LightConfig struct {
+	// Name identifies the light in the CLI (`makereye light <name> ...`)
+	// and in MQTT topics/Home Assistant entity ids.
+	Name string `yaml:"name"`
+
+	// Type is the backend type. Supported: "wyze_spotlight".
+	Type string `yaml:"type"`
+
+	// Device is the backend's device path. For wyze_spotlight this is
+	// the USB serial device; empty means /dev/ttyUSB0.
+	Device string `yaml:"device"`
+
+	// StartupBrightness (0-255) is applied when the daemon starts, so
+	// the light is in a known state (the Wyze spotlight is write-only,
+	// its actual state can't be read back). 0 = off.
+	StartupBrightness int `yaml:"startup_brightness"`
+}
+
 // TimelapseConfig is a placeholder for Milestone 5. No runtime effect.
 type TimelapseConfig struct {
 	Enabled bool `yaml:"enabled"`
@@ -237,6 +269,9 @@ func Default() *Config {
 			Enabled:         false,
 			TopicPrefix:     "makereye",
 			DiscoveryPrefix: "homeassistant",
+		},
+		Lighting: LightingConfig{
+			Enabled: false,
 		},
 		System: SystemConfig{
 			LogLevel: "info",
@@ -327,6 +362,26 @@ func (c *Config) Validate() error {
 		check(strings.TrimSpace(c.MQTT.TopicPrefix) == "", "mqtt.topic_prefix must not be empty when enabled")
 		check(strings.ContainsAny(c.MQTT.TopicPrefix, " #+"), "mqtt.topic_prefix must not contain spaces or MQTT wildcards, got %q", c.MQTT.TopicPrefix)
 		check(strings.TrimSpace(c.MQTT.DiscoveryPrefix) == "", "mqtt.discovery_prefix must not be empty when enabled")
+	}
+
+	if c.Lighting.Enabled {
+		check(len(c.Lighting.Lights) == 0, "lighting.lights must not be empty when lighting is enabled")
+		seen := map[string]bool{}
+		for i, l := range c.Lighting.Lights {
+			check(strings.TrimSpace(l.Name) == "", "lighting.lights[%d].name must not be empty", i)
+			check(strings.ContainsAny(l.Name, " /\\?#+"),
+				"lighting.lights[%d].name must not contain whitespace, URL-reserved, or MQTT wildcard characters, got %q", i, l.Name)
+			check(seen[l.Name], "lighting.lights[%d].name %q is duplicated", i, l.Name)
+			seen[l.Name] = true
+			switch l.Type {
+			case LightTypeWyzeSpotlight:
+			default:
+				errs = append(errs, fmt.Sprintf(
+					"lighting.lights[%d].type must be %q, got %q", i, LightTypeWyzeSpotlight, l.Type))
+			}
+			check(l.StartupBrightness < 0 || l.StartupBrightness > 255,
+				"lighting.lights[%d].startup_brightness must be 0-255, got %d", i, l.StartupBrightness)
+		}
 	}
 
 	switch c.System.LogLevel {

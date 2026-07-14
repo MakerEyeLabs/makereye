@@ -10,23 +10,28 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/MakerEyeLabs/makereye/internal/config"
 	"github.com/MakerEyeLabs/makereye/internal/go2rtc"
 	"github.com/MakerEyeLabs/makereye/internal/ipc"
+	"github.com/MakerEyeLabs/makereye/internal/lighting"
 	"github.com/MakerEyeLabs/makereye/internal/mqtt"
 	"github.com/MakerEyeLabs/makereye/internal/prusaconnect"
 )
 
 // Daemon is the running MakerEye process: it supervises go2rtc, the
-// optional Prusa Connect uploader, and the optional MQTT bridge, and
+// optional Prusa Connect uploader, lighting, and MQTT bridge, and
 // serves the local control socket.
 type Daemon struct {
 	cfg        *config.Config
 	logger     *slog.Logger
 	supervisor *go2rtc.Supervisor
 	uploader   *prusaconnect.Uploader
+	lights     *lighting.Manager
 	bridge     *mqtt.Bridge
 }
 
@@ -40,6 +45,7 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 		logger:     logger,
 		supervisor: go2rtc.NewSupervisor(cfg, logger),
 		uploader:   prusaconnect.NewUploader(cfg, logger),
+		lights:     lighting.NewManager(cfg, logger),
 	}
 	d.bridge = mqtt.NewBridge(cfg, logger, mqtt.Hooks{
 		StreamStart:   d.supervisor.Start,
@@ -48,6 +54,10 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 		PrusaStart:    d.uploader.Start,
 		PrusaStop:     d.uploader.Stop,
 		PrusaRestart:  d.uploader.Restart,
+		LightOn:       func(_ context.Context, name string) error { return d.lights.On(name) },
+		LightOff:      func(_ context.Context, name string) error { return d.lights.Off(name) },
+		LightSet:      func(_ context.Context, name string, level int) error { return d.lights.Set(name, level) },
+		LightStates:   d.lights.States,
 		Status:        d.mqttStatus,
 	})
 	return d
@@ -92,6 +102,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 	}
 
+	if d.cfg.Lighting.Enabled {
+		if err := d.lights.Start(ctx); err != nil {
+			// Advisory subsystem: log and continue.
+			d.logger.Error("starting lighting", "error", err)
+		}
+	}
+
 	if d.cfg.MQTT.Enabled {
 		if err := d.bridge.Start(ctx); err != nil {
 			// Advisory subsystem: log and continue, never block core
@@ -129,6 +146,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	if err := d.bridge.Stop(stopCtx); err != nil {
 		d.logger.Error("error stopping mqtt bridge", "error", err)
+	}
+	if err := d.lights.Stop(stopCtx); err != nil {
+		d.logger.Error("error stopping lighting", "error", err)
 	}
 	return nil
 }
@@ -173,9 +193,35 @@ func (d *Daemon) handle(ctx context.Context, req ipc.Request) ipc.Response {
 			return ipc.Response{OK: false, Error: err.Error()}
 		}
 		return ipc.Response{OK: true, Message: "prusa connect uploader restarted"}
+	case ipc.CmdLightSet:
+		return d.handleLightSet(req)
 	default:
 		return ipc.Response{OK: false, Error: fmt.Sprintf("unknown command %q", req.Command)}
 	}
+}
+
+func (d *Daemon) handleLightSet(req ipc.Request) ipc.Response {
+	if !d.cfg.Lighting.Enabled {
+		return ipc.Response{OK: false, Error: "lighting.enabled is false in config"}
+	}
+
+	var err error
+	switch strings.ToLower(req.Brightness) {
+	case "on":
+		err = d.lights.On(req.Light)
+	case "off":
+		err = d.lights.Off(req.Light)
+	default:
+		level, convErr := strconv.Atoi(req.Brightness)
+		if convErr != nil {
+			return ipc.Response{OK: false, Error: fmt.Sprintf("brightness must be \"on\", \"off\", or 0-255, got %q", req.Brightness)}
+		}
+		err = d.lights.Set(req.Light, level)
+	}
+	if err != nil {
+		return ipc.Response{OK: false, Error: err.Error()}
+	}
+	return ipc.Response{OK: true, Message: fmt.Sprintf("light %q set to %d", req.Light, d.lights.States()[req.Light])}
 }
 
 func (d *Daemon) handleStatus() ipc.Response {
@@ -199,6 +245,21 @@ func (d *Daemon) handleStatus() ipc.Response {
 		msg += fmt.Sprintf("\nmqtt: %s broker=%s", mqttState, d.cfg.MQTT.BrokerURL)
 	} else {
 		msg += "\nmqtt: disabled"
+	}
+
+	if d.cfg.Lighting.Enabled {
+		states := d.lights.States()
+		names := make([]string, 0, len(states))
+		for name := range states {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		msg += "\nlighting:"
+		for _, name := range names {
+			msg += fmt.Sprintf(" %s=%d", name, states[name])
+		}
+	} else {
+		msg += "\nlighting: disabled"
 	}
 
 	return ipc.Response{OK: true, Status: string(st.Phase), Message: msg}

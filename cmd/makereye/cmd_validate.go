@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"strings"
 )
 
 func cmdValidateConfig(args []string) int {
@@ -39,5 +40,14 @@ func cmdValidateConfig(args []string) int {
 			cfg.MQTT.BrokerURL, cfg.MQTT.TopicPrefix)
 	}
 	fmt.Printf("  mqtt: %s\n", mqttState)
+	lightingState := "disabled"
+	if cfg.Lighting.Enabled {
+		names := make([]string, 0, len(cfg.Lighting.Lights))
+		for _, l := range cfg.Lighting.Lights {
+			names = append(names, fmt.Sprintf("%s(%s)", l.Name, l.Type))
+		}
+		lightingState = "enabled: " + strings.Join(names, ", ")
+	}
+	fmt.Printf("  lighting: %s\n", lightingState)
 	return 0
 }
