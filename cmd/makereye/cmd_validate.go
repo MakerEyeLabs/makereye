@@ -33,5 +33,11 @@ func cmdValidateConfig(args []string) int {
 			cfg.PrusaConnect.Fingerprint, cfg.PrusaConnect.IntervalSeconds)
 	}
 	fmt.Printf("  prusa_connect: %s\n", prusaState)
+	mqttState := "disabled"
+	if cfg.MQTT.Enabled {
+		mqttState = fmt.Sprintf("enabled (broker=%s, topic_prefix=%s)",
+			cfg.MQTT.BrokerURL, cfg.MQTT.TopicPrefix)
+	}
+	fmt.Printf("  mqtt: %s\n", mqttState)
 	return 0
 }

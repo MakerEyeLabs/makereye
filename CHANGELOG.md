@@ -8,6 +8,14 @@ SemVer once tagged releases begin.
 
 ### Added
 
+- Milestone 3: optional MQTT + Home Assistant integration
+  (`internal/mqtt`). With `mqtt.enabled` and a broker configured,
+  MakerEye publishes availability (LWT), state/telemetry, and appears
+  in Home Assistant automatically via MQTT discovery: stream and Prusa
+  Connect switches, restart buttons, and status sensors, all driving
+  the same daemon internals as the CLI. Advisory subsystem: a down
+  broker is retried in the background and never affects streaming.
+  First dependency beyond yaml.v3: `eclipse/paho.mqtt.golang`.
 - `scripts/spotlight_ctl.sh`: standalone brightness control (0-255) for a
   Wyze Cam v3 Spotlight Kit accessory driven directly over the Pi's USB
   OTG port. Not wired into `config.yaml`/the daemon, an experiment kept

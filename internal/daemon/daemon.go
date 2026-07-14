@@ -15,16 +15,19 @@ import (
 	"github.com/MakerEyeLabs/makereye/internal/config"
 	"github.com/MakerEyeLabs/makereye/internal/go2rtc"
 	"github.com/MakerEyeLabs/makereye/internal/ipc"
+	"github.com/MakerEyeLabs/makereye/internal/mqtt"
 	"github.com/MakerEyeLabs/makereye/internal/prusaconnect"
 )
 
-// Daemon is the running MakerEye process: it supervises go2rtc and the
-// optional Prusa Connect uploader, and serves the local control socket.
+// Daemon is the running MakerEye process: it supervises go2rtc, the
+// optional Prusa Connect uploader, and the optional MQTT bridge, and
+// serves the local control socket.
 type Daemon struct {
 	cfg        *config.Config
 	logger     *slog.Logger
 	supervisor *go2rtc.Supervisor
 	uploader   *prusaconnect.Uploader
+	bridge     *mqtt.Bridge
 }
 
 // New creates a Daemon for cfg.
@@ -32,11 +35,34 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Daemon{
+	d := &Daemon{
 		cfg:        cfg,
 		logger:     logger,
 		supervisor: go2rtc.NewSupervisor(cfg, logger),
 		uploader:   prusaconnect.NewUploader(cfg, logger),
+	}
+	d.bridge = mqtt.NewBridge(cfg, logger, mqtt.Hooks{
+		StreamStart:   d.supervisor.Start,
+		StreamStop:    d.supervisor.Stop,
+		StreamRestart: d.supervisor.Restart,
+		PrusaStart:    d.uploader.Start,
+		PrusaStop:     d.uploader.Stop,
+		PrusaRestart:  d.uploader.Restart,
+		Status:        d.mqttStatus,
+	})
+	return d
+}
+
+// mqttStatus snapshots the subsystems for the MQTT bridge.
+func (d *Daemon) mqttStatus() mqtt.Status {
+	st := d.supervisor.Status()
+	pst := d.uploader.Status()
+	return mqtt.Status{
+		StreamPhase:    string(st.Phase),
+		StreamRestarts: st.RestartCount,
+		PrusaPhase:     string(pst.Phase),
+		PrusaUploads:   pst.UploadCount,
+		PrusaFailures:  pst.FailureCount,
 	}
 }
 
@@ -66,6 +92,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 	}
 
+	if d.cfg.MQTT.Enabled {
+		if err := d.bridge.Start(ctx); err != nil {
+			// Advisory subsystem: log and continue, never block core
+			// operation on the MQTT integration.
+			d.logger.Error("starting mqtt bridge", "error", err)
+		}
+	}
+
 	sockPath := SocketPath(d.cfg)
 	serveErr := make(chan error, 1)
 	go func() {
@@ -92,6 +126,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	if err := d.uploader.Stop(stopCtx); err != nil {
 		d.logger.Error("error stopping prusa connect uploader", "error", err)
+	}
+	if err := d.bridge.Stop(stopCtx); err != nil {
+		d.logger.Error("error stopping mqtt bridge", "error", err)
 	}
 	return nil
 }
@@ -152,6 +189,16 @@ func (d *Daemon) handleStatus() ipc.Response {
 	msg += fmt.Sprintf("\nprusa_connect: phase=%s uploads=%d failures=%d", pst.Phase, pst.UploadCount, pst.FailureCount)
 	if pst.LastError != "" {
 		msg += " last_error=" + pst.LastError
+	}
+
+	if d.cfg.MQTT.Enabled {
+		mqttState := "disconnected (retrying)"
+		if d.bridge.Connected() {
+			mqttState = "connected"
+		}
+		msg += fmt.Sprintf("\nmqtt: %s broker=%s", mqttState, d.cfg.MQTT.BrokerURL)
+	} else {
+		msg += "\nmqtt: disabled"
 	}
 
 	return ipc.Response{OK: true, Status: string(st.Phase), Message: msg}

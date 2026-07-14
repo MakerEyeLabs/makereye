@@ -131,32 +131,36 @@ These apply across every milestone:
   registered but no image" during setup is expected if the printer
   itself isn't on, not a MakerEye or upload problem.
 
-## Milestone 3 — MQTT + Home Assistant integration — NOT STARTED
+## Milestone 3 — MQTT + Home Assistant integration — IMPLEMENTED, awaiting hardware validation
 
-The usability foundation: after this milestone, everything that is
-CLI-only today (stream start/stop/restart, prusa start/stop/restart,
-status) is operable from Home Assistant, and later milestones plug new
-features into the same plumbing instead of building their own.
+The usability foundation: everything that was CLI-only (stream
+start/stop/restart, prusa start/stop/restart, status) is now operable
+from Home Assistant, and later milestones plug new features into the
+same plumbing instead of building their own.
 
-- Optional MQTT client; MUST NOT be required for core operation
-  (streaming and Prusa Connect uploads keep working with `mqtt.enabled:
-  false`).
-- Availability topic (LWT) + telemetry: stream phase/PID/restarts,
-  Prusa Connect upload/failure counts, device identity.
-- Control with acknowledgements: stream start/stop/restart, prusa
-  start/stop/restart — mirroring the existing control-socket commands,
-  dispatched through the same daemon internals.
-- Home Assistant MQTT discovery, so entities appear automatically:
-  status sensors, switches for the stream and the uploader. Also
-  document how to point a HA `camera` entity at the go2rtc
-  MJPEG/snapshot URLs (that part needs no new code).
+- `internal/mqtt.Bridge`: optional advisory in-process subsystem (see
+  `DESIGN.md` "MQTT + Home Assistant bridge"). NOT required for core
+  operation — daemon starts and streams normally with the broker down;
+  paho retries in the background indefinitely.
+- Availability topic (retained + LWT), JSON status telemetry (stream
+  phase/restarts, Prusa upload/failure counts), republished on every
+  command (ack) and every 30s.
+- Control mirroring the control-socket commands through the same daemon
+  internals: stream and prusa switches (ON/OFF) + restart buttons.
+  Prusa entities only published when `prusa_connect.enabled`.
+- Home Assistant MQTT discovery (retained, re-published on every
+  reconnect): one "MakerEye" device with switches, buttons, and
+  sensors, availability wired so entities show unavailable when the
+  daemon dies. HA camera entity needs no code — documented in README
+  (point Generic Camera at the go2rtc URLs).
 - Broker credentials in `config.yaml` under `mqtt:`, same plaintext
-  policy and reasoning as the existing credentials (`DESIGN.md`
-  "Security considerations" and "Configuration model").
-- Config placeholder already present: `mqtt.enabled`.
-- **Research needed at implementation time**: exact HA MQTT discovery
-  topic/payload conventions so entities show up correctly (device
-  grouping, availability wiring, unique IDs).
+  policy and reasoning as the existing credentials.
+- Unit-tested against a fake paho client (discovery payloads, command
+  dispatch, ack republish, offline LWT behavior); daemon smoke-tested
+  against an unreachable broker.
+- **Awaiting hardware validation**: entities appearing/controllable in
+  a real HA instance via a real broker. Flip this milestone to DONE
+  once confirmed.
 
 ## Milestone 4 — Lighting framework + Wyze Spotlight Kit — NOT STARTED
 

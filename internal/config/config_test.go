@@ -45,6 +45,17 @@ func TestValidateCatchesBadValues(t *testing.T) {
 			c.PrusaConnect.Fingerprint = "at-least-16-characters"
 			c.PrusaConnect.IntervalSeconds = 0
 		}, "prusa_connect.interval_seconds"},
+		{"mqtt enabled without broker", func(c *Config) { c.MQTT.Enabled = true }, "mqtt.broker_url"},
+		{"mqtt password without username", func(c *Config) {
+			c.MQTT.Enabled = true
+			c.MQTT.BrokerURL = "tcp://host:1883"
+			c.MQTT.Password = "hunter2"
+		}, "mqtt.password"},
+		{"mqtt topic prefix with wildcard", func(c *Config) {
+			c.MQTT.Enabled = true
+			c.MQTT.BrokerURL = "tcp://host:1883"
+			c.MQTT.TopicPrefix = "makereye/#"
+		}, "mqtt.topic_prefix"},
 		{"bad log level", func(c *Config) { c.System.LogLevel = "loud" }, "system.log_level"},
 	}
 

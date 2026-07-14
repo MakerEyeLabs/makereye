@@ -134,6 +134,39 @@ Each tick does two HTTP calls:
    Prusa's primary documentation (see `ROADMAP.md`'s former "Future
    research questions" entry for this, now resolved).
 
+## MQTT + Home Assistant bridge
+
+`internal/mqtt.Bridge` is the third advisory in-process subsystem
+(after the Prusa uploader): a goroutine owning a paho MQTT client, not
+a supervised child process. It MUST NOT be required for core operation
+— the daemon starts and streams normally with the broker down, paho
+retries in the background indefinitely, and a bridge startup error is
+logged rather than failing `daemon.Run`.
+
+- **Decoupling**: the bridge takes a `Hooks` struct of plain functions
+  (stream/prusa start/stop/restart + a `Status` snapshot getter) that
+  the daemon wires to the same internals the control socket uses. The
+  bridge doesn't import `go2rtc`/`prusaconnect`, and MQTT commands are
+  a third front-end (CLI, control socket, MQTT) to one set of
+  operations, not a parallel implementation.
+- **Topics**: MakerEye's own state lives under
+  `<topic_prefix>/<device-slug>/...` (availability with LWT, a JSON
+  status document, per-switch ON/OFF state topics, command topics).
+  Home Assistant discovery configs are published retained under HA's
+  `<discovery_prefix>` on every (re)connect, so both HA restarts and
+  broker restarts converge without manual steps.
+- **Acknowledgement model**: after any MQTT-initiated command the
+  bridge republishes state immediately; a 30s refresh tick covers
+  missed messages. Commands run with a 15s timeout.
+- **Connection state honesty**: `Bridge.Connected` uses paho's
+  `IsConnectionOpen`, not `IsConnected` — the latter also reports true
+  while a reconnect is merely pending, which made `makereye status`
+  claim "connected" against a down broker during testing.
+- **Testing**: paho's `Client` is already an interface, so tests
+  substitute a fake client and invoke the OnConnect handler directly —
+  no broker needed, same boundary-faking philosophy as the go2rtc
+  supervisor tests.
+
 ## Configuration model
 
 - Format: YAML, single file, default path `/etc/makereye/config.yaml`,
@@ -258,11 +291,13 @@ Each tick does two HTTP calls:
   validated config fields (ints, bools, a closed set of enum strings) —
   there is no string concatenation of user input into a shell command.
   `exec.Command` is used with an explicit argv, not `sh -c`.
-- `prusa_connect.token` (in `config.yaml`) is stored as plaintext, the
-  same reasoning and file permissions as `go2rtc.auth.password` above
-  (Prusa Connect's API needs the literal bearer token, hashing it would
-  break every upload). See "Configuration model" above for why this
-  lives in `config.yaml` rather than a separate secrets file.
+- `prusa_connect.token` and `mqtt.password` (in `config.yaml`) are
+  stored as plaintext, the same reasoning and file permissions as
+  `go2rtc.auth.password` above (Prusa Connect's API needs the literal
+  bearer token, and the MQTT broker needs the literal password;
+  hashing either would break authentication). See "Configuration
+  model" above for why these live in `config.yaml` rather than a
+  separate secrets file.
 - Logs go to stdout/stderr only (journald captures them). Config values
   are logged sparingly and never include anything secret-shaped:
   `cmd_validate.go` prints whether `go2rtc.auth`/`prusa_connect` are

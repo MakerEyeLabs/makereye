@@ -154,9 +154,32 @@ type PrusaConnectConfig struct {
 	IntervalSeconds int `yaml:"interval_seconds"`
 }
 
-// MQTTConfig is a placeholder for Milestone 3. No runtime effect.
+// MQTTConfig controls the optional MQTT + Home Assistant integration.
+// Core operation (streaming, Prusa Connect uploads) never requires it.
 type MQTTConfig struct {
 	Enabled bool `yaml:"enabled"`
+
+	// BrokerURL is the MQTT broker address, e.g.
+	// "tcp://homeassistant.local:1883" (or "ssl://host:8883" for TLS).
+	BrokerURL string `yaml:"broker_url"`
+
+	// Username/Password authenticate against the broker. Password is
+	// stored as configured, not hashed -- the broker needs the literal
+	// credential, the same constraint as Go2rtcConfig's AuthConfig.
+	// Username may be set alone (some brokers allow passwordless
+	// users); Password requires Username.
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+
+	// TopicPrefix is the root of MakerEye's own MQTT topics
+	// (availability, state, commands). Topics look like
+	// "<topic_prefix>/<device.name>/...". Default "makereye".
+	TopicPrefix string `yaml:"topic_prefix"`
+
+	// DiscoveryPrefix is Home Assistant's MQTT discovery prefix.
+	// Default "homeassistant" (HA's own default); only change it if
+	// your HA install changed it too.
+	DiscoveryPrefix string `yaml:"discovery_prefix"`
 }
 
 // TimelapseConfig is a placeholder for Milestone 5. No runtime effect.
@@ -209,6 +232,11 @@ func Default() *Config {
 		PrusaConnect: PrusaConnectConfig{
 			Enabled:         false,
 			IntervalSeconds: 10,
+		},
+		MQTT: MQTTConfig{
+			Enabled:         false,
+			TopicPrefix:     "makereye",
+			DiscoveryPrefix: "homeassistant",
 		},
 		System: SystemConfig{
 			LogLevel: "info",
@@ -290,6 +318,15 @@ func (c *Config) Validate() error {
 			"prusa_connect.fingerprint must be at least 16 characters when enabled, got %d", len(c.PrusaConnect.Fingerprint))
 		check(c.PrusaConnect.IntervalSeconds <= 0,
 			"prusa_connect.interval_seconds must be positive when enabled, got %d", c.PrusaConnect.IntervalSeconds)
+	}
+
+	if c.MQTT.Enabled {
+		check(strings.TrimSpace(c.MQTT.BrokerURL) == "", "mqtt.broker_url must not be empty when enabled")
+		check(c.MQTT.Username == "" && c.MQTT.Password != "",
+			"mqtt.password requires mqtt.username to be set")
+		check(strings.TrimSpace(c.MQTT.TopicPrefix) == "", "mqtt.topic_prefix must not be empty when enabled")
+		check(strings.ContainsAny(c.MQTT.TopicPrefix, " #+"), "mqtt.topic_prefix must not contain spaces or MQTT wildcards, got %q", c.MQTT.TopicPrefix)
+		check(strings.TrimSpace(c.MQTT.DiscoveryPrefix) == "", "mqtt.discovery_prefix must not be empty when enabled")
 	}
 
 	switch c.System.LogLevel {

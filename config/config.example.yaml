@@ -117,15 +117,37 @@ system:
   state_dir: /var/lib/makereye
   run_dir: /run/makereye
 
+# Optional MQTT + Home Assistant integration. Core operation
+# (streaming, Prusa Connect uploads) never requires this; with a broker
+# configured, MakerEye publishes availability/state and appears in Home
+# Assistant automatically via MQTT discovery (switches for the stream
+# and Prusa uploads, restart buttons, status sensors).
+mqtt:
+  enabled: false
+
+  # Broker address, e.g. Home Assistant's Mosquitto add-on:
+  #   tcp://homeassistant.local:1883
+  # Use ssl:// for TLS brokers.
+  broker_url: ""
+
+  # Broker credentials. Password is stored as plaintext here (the
+  # broker needs the literal credential, same policy as go2rtc.auth
+  # above). Username may be set alone; password requires username.
+  username: ""
+  password: ""
+
+  # Root of MakerEye's own topics: <topic_prefix>/<device-name>/...
+  topic_prefix: makereye
+
+  # Home Assistant's MQTT discovery prefix. Leave at HA's default
+  # unless you changed it in HA's MQTT integration settings.
+  discovery_prefix: homeassistant
+
 # --------------------------------------------------------------------
 # The sections below are placeholders for future milestones. They are
 # accepted and lightly validated but have NO runtime effect yet --
 # setting enabled: true does nothing in this version of MakerEye.
 # --------------------------------------------------------------------
-
-# Milestone 3: optional MQTT telemetry and control + Home Assistant.
-mqtt:
-  enabled: false
 
 # Milestone 5/6: manual and PrusaLink-triggered timelapses.
 timelapse:

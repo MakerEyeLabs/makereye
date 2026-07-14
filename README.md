@@ -246,6 +246,50 @@ a literal bearer credential on every upload, so MakerEye must hold the
 real value to use it. `config.yaml` is `0640 makereye:makereye`; treat it
 like any other credential file.
 
+## MQTT and Home Assistant
+
+MakerEye can connect to an MQTT broker and appear in Home Assistant
+automatically via MQTT discovery — no HA-side configuration needed. This
+is entirely optional: streaming and Prusa Connect uploads never require
+MQTT.
+
+You need a broker HA is connected to; the standard setup is HA's
+Mosquitto add-on. Then:
+
+```yaml
+mqtt:
+  enabled: true
+  broker_url: tcp://homeassistant.local:1883
+  username: makereye
+  password: "<broker password>"
+```
+
+and `sudo systemctl restart makereye`. A "MakerEye" device appears in
+HA (Settings → Devices & Services → MQTT) with:
+
+- a **Stream** switch and a **Restart stream** button,
+- a **Prusa Connect uploads** switch and restart button (only when
+  `prusa_connect.enabled` is true),
+- sensors: stream phase, Prusa upload/failure counts,
+- availability wiring, so everything shows "unavailable" if the daemon
+  or the Pi goes down.
+
+Commands go through the same internals as the CLI; state is republished
+immediately after each command (acknowledgement) and every 30 seconds.
+A broker that is down or unreachable is retried in the background
+forever and never affects streaming; `makereye status` shows
+`mqtt: connected` / `disconnected (retrying)`.
+
+**Live video in HA** needs no MakerEye code at all: point HA's
+[Generic Camera](https://www.home-assistant.io/integrations/generic/)
+integration at the go2rtc snapshot and stream URLs from `makereye
+status` (requires LAN-reachable listen addresses and `go2rtc.auth`, per
+"Network exposure and security" above).
+
+Broker credentials are stored as plaintext in `config.yaml`, same
+policy and reasoning as the other credentials (see "Token storage"
+above).
+
 ## Hardware validation
 
 **This has not been run against real hardware by the session that wrote
