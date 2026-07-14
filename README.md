@@ -13,10 +13,10 @@ Prusa specifically.
 
 **Current status: Milestone 0 (repository foundation), Milestone 1
 (camera streaming), and Milestone 2 (Prusa Connect uploads) are
-implemented. Later milestones (MQTT, timelapses, motion detection, AI
-monitoring, web UI) are documented in `ROADMAP.md` but not yet
-implemented.** See `docs/NEXT_SESSION.md` for exactly what has and
-hasn't been validated.
+implemented. Later milestones (MQTT/Home Assistant, lighting,
+timelapses, web UI, motion detection, AI monitoring) are documented in
+`ROADMAP.md` but not yet implemented.** See `docs/NEXT_SESSION.md` for
+exactly what has and hasn't been validated.
 
 ## What's implemented
 
@@ -101,8 +101,8 @@ sudo ./scripts/uninstall.sh --purge    # also removes config, state, and the mak
 
 Default path: `/etc/makereye/config.yaml` (override with `-config` on any
 `makereye` subcommand). See `config/config.example.yaml` for a fully
-commented example covering `device`, `camera`, `stream`, `go2rtc`, and
-`system`. Sections for future milestones (`prusa_connect`, `mqtt`,
+commented example covering `device`, `camera`, `stream`, `go2rtc`,
+`prusa_connect`, and `system`. Sections for future milestones (`mqtt`,
 `timelapse`, `prusalink`, `motion`, `ai`) are accepted but have no runtime
 effect yet.
 
@@ -300,8 +300,9 @@ DEVICE=/dev/ttyUSB1 ./scripts/spotlight_ctl.sh 0
 ```
 
 This is a standalone experiment, not wired into `config.yaml` or the
-daemon. See `ROADMAP.md`'s Milestone 3 (MQTT) notes for the possible
-future integration (spotlight control as an MQTT command).
+daemon. See `ROADMAP.md`'s Milestone 4 (Lighting) for the planned
+integration: a native lighting subsystem with CLI control and a
+dimmable Home Assistant light entity over MQTT.
 
 ## License
 

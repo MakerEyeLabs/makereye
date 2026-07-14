@@ -123,22 +123,22 @@ system:
 # setting enabled: true does nothing in this version of MakerEye.
 # --------------------------------------------------------------------
 
-# Milestone 3: optional MQTT telemetry and control.
+# Milestone 3: optional MQTT telemetry and control + Home Assistant.
 mqtt:
   enabled: false
 
-# Milestone 4/5: manual and PrusaLink-triggered timelapses.
+# Milestone 5/6: manual and PrusaLink-triggered timelapses.
 timelapse:
   enabled: false
 
-# Milestone 5: PrusaLink automatic timelapse triggers.
+# Milestone 6: PrusaLink automatic timelapse triggers.
 prusalink:
   enabled: false
 
-# Milestone 6: motion-triggered recording.
+# Milestone 8: motion-triggered recording.
 motion:
   enabled: false
 
-# Milestone 7: local AI print monitoring.
+# Milestone 9: local AI print monitoring.
 ai:
   enabled: false

@@ -159,22 +159,22 @@ type MQTTConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
-// TimelapseConfig is a placeholder for Milestone 4. No runtime effect.
+// TimelapseConfig is a placeholder for Milestone 5. No runtime effect.
 type TimelapseConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
-// PrusaLinkConfig is a placeholder for Milestone 5. No runtime effect.
+// PrusaLinkConfig is a placeholder for Milestone 6. No runtime effect.
 type PrusaLinkConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
-// MotionConfig is a placeholder for Milestone 6. No runtime effect.
+// MotionConfig is a placeholder for Milestone 8. No runtime effect.
 type MotionConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
-// AIConfig is a placeholder for Milestone 7. No runtime effect.
+// AIConfig is a placeholder for Milestone 9. No runtime effect.
 type AIConfig struct {
 	Enabled bool `yaml:"enabled"`
 }

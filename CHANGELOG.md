@@ -11,8 +11,8 @@ SemVer once tagged releases begin.
 - `scripts/spotlight_ctl.sh`: standalone brightness control (0-255) for a
   Wyze Cam v3 Spotlight Kit accessory driven directly over the Pi's USB
   OTG port. Not wired into `config.yaml`/the daemon, an experiment kept
-  as a utility script; see `ROADMAP.md`'s Milestone 3 notes for the
-  possible future MQTT integration.
+  as a utility script; see `ROADMAP.md`'s Milestone 4 (Lighting) for
+  the planned native integration.
 - Milestone 2: Prusa Connect snapshot uploads. `internal/prusaconnect`
   captures a JPEG from go2rtc's own snapshot endpoint and PUTs it to
   Prusa Connect on an interval (`prusa_connect.token`/`fingerprint`/
@@ -48,6 +48,18 @@ SemVer once tagged releases begin.
   a single `curl | sudo bash` command; re-running it pulls the latest
   commit instead of re-cloning.
 
+### Changed
+
+- Restructured `ROADMAP.md`: added explicit design priorities (everyday
+  use without a terminal — one-time SSH setup is fine, Home Assistant
+  as the automation surface, lighting as part of image quality with a
+  pluggable-backend framework), rewrote the contributor guidelines
+  around keeping `main` releasable with feature work in branches,
+  reordered the remaining milestones (MQTT/Home Assistant → lighting →
+  manual timelapse → PrusaLink timelapse → web UI → motion → AI), and
+  moved the "future research questions" into the milestones they belong
+  to. Placeholder config sections were renumbered to match.
+
 ### Fixed
 
 - `scripts/install.sh` was missing `ffmpeg` from the installed apt
@@ -65,5 +77,6 @@ SemVer once tagged releases begin.
   default; default config binds them to loopback only. Optional
   username/password auth is available (see `README.md` "Network exposure
   and security") but is off unless explicitly configured.
-- Milestones 3-8 (MQTT, timelapses, PrusaLink, motion detection, AI
-  monitoring, web UI) are not implemented; see `ROADMAP.md`.
+- Milestones 3-9 (MQTT/Home Assistant, lighting, timelapses, PrusaLink,
+  web UI, motion detection, AI monitoring) are not implemented; see
+  `ROADMAP.md`.

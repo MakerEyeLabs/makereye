@@ -25,9 +25,9 @@
 #                   checksum is silently ignored, not just decorative).
 #
 # This is standalone and not wired into MakerEye's daemon/config yet --
-# see ROADMAP.md's Milestone 3 (MQTT) notes for the planned integration
-# (spotlight control exposed as an MQTT command once that milestone's
-# command dispatch exists).
+# see ROADMAP.md's Milestone 4 (Lighting) for the planned integration:
+# a native lighting subsystem with CLI control and a dimmable Home
+# Assistant light entity over MQTT.
 #
 # Usage:
 #   ./scripts/spotlight_ctl.sh <brightness 0-255>

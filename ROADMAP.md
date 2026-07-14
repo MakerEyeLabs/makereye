@@ -1,21 +1,72 @@
 # MakerEye Roadmap
 
-This tracks milestone status. See `DESIGN.md` for architecture and
+This tracks milestone status, ordering, and what each milestone must
+deliver to count as done. See `DESIGN.md` for architecture and
 `docs/NEXT_SESSION.md` for the most recent session handoff.
 
-**Rule for contributors (human or agent): work on one milestone at a
-time. Do not partially implement a later milestone while "just adding a
-placeholder", config placeholders are fine (see below), runtime code for
-future milestones is not.**
+## Design priorities
 
-## Milestone 0, Repository foundation, ✅ DONE (this session)
+These apply across every milestone:
+
+1. **Everyday use must not need a terminal.** One-time setup and
+   configuration over SSH is fine (install, editing `config.yaml`);
+   day-to-day operation is not allowed to require a shell. Milestones 1
+   and 2 already meet this bar: once configured, streaming and Prusa
+   Connect uploads just run, and you watch them in VLC, a browser, or
+   the Prusa Connect dashboard. The rule for new milestones: any
+   control an operator is expected to touch routinely (start a
+   timelapse, turn a light on) ships with a no-shell interface
+   (MQTT/Home Assistant, and later the local web UI) in the same
+   milestone — "CLI now, MQTT later" deferrals are not allowed.
+2. **Home Assistant integration is a focus — and strictly optional.**
+   Core features (streaming, Prusa Connect uploads, lighting,
+   timelapses) work out of the box with no Home Assistant and no MQTT
+   broker; HA integration is a first-class way to operate and automate
+   MakerEye, never a requirement for it. Within that boundary, HA is
+   the preferred automation surface: behaviors that *compose* MakerEye's
+   features (lighting schedules, notifications, custom triggers) belong
+   in HA automations over the entities MakerEye exposes, not
+   reimplemented inside MakerEye — but when something is core rather
+   than compositional, it gets built in and the HA recipe becomes an
+   alternative, not the only path (see Milestone 6 for an example of
+   this split).
+3. **Lighting is part of image quality.** Snapshots, streams, and
+   timelapses are only as good as the scene lighting, so lighting
+   control is a first-class (optional) subsystem with pluggable
+   backends (see Milestone 4), not an afterthought. The first supported
+   light is the Wyze Cam v3 Spotlight Kit — an off-the-shelf, cheap
+   (~$8 on sale as of mid-2026), plug-and-play USB accessory whose
+   protocol is already reverse-engineered
+   (`scripts/spotlight_ctl.sh`); GPIO-driven lights and addressable LED
+   strips are planned backend types.
+
+## Contributor guidelines (human or agent)
+
+- **`main` stays releasable.** Every commit on `main` builds, passes
+  `make check`, and keeps the docs consistent (README / DESIGN /
+  CHANGELOG / example config updated together with the code). Partial
+  and exploratory work lives in branches, not on `main`.
+- **One milestone per branch/PR.** Don't mix milestones in one change,
+  and don't land runtime code for a later milestone while working on an
+  earlier one. Config placeholders for future milestones (a section that
+  parses and validates but does nothing) are fine and encouraged, so the
+  schema doesn't churn.
+- **A milestone is complete when**: its features are implemented and
+  tested; docs are updated; behavior is validated on real hardware (or
+  the unvalidated parts are explicitly flagged as such); and it
+  satisfies the everyday-use usability rule in "Design priorities".
+
+## Milestone 0 — Repository foundation — ✅ DONE
 
 - Go module (`github.com/MakerEyeLabs/makereye`), GPLv3 license,
   `.gitignore`, README/DESIGN/ROADMAP/CHANGELOG, example config, systemd
   unit, install/uninstall scripts, Makefile, build-time version support,
   focused tests.
+- Added later: `scripts/bootstrap.sh` (build deps for stock Raspberry Pi
+  OS Lite) and `scripts/quickstart.sh` (single `curl | sudo bash`
+  clone/build/install).
 
-## Milestone 1, Camera streaming, ✅ DONE (this session)
+## Milestone 1 — Camera streaming — ✅ DONE
 
 - `internal/config`: schema, defaults, validation, YAML load.
 - `internal/camera`: rpicam-vid argument construction.
@@ -27,33 +78,37 @@ future milestones is not.**
 - CLI: `run`, `version`, `validate-config`, `status`, `stream
   start/stop/restart`.
 - systemd unit + install/uninstall scripts.
-- **Not hardware-validated**, see `docs/NEXT_SESSION.md` for the exact
-  checklist to run on a real Pi Zero 2 W + Camera Module 3.
-- **Added after initial hardware validation**: optional
-  `go2rtc.auth.username`/`password` in `config.yaml`, passed through to
-  go2rtc's own RTSP/HTTP API auth, for LAN-exposed setups. Password is
-  stored as plaintext deliberately (see `DESIGN.md` "Security
-  considerations" for why hashing it would break auth entirely).
+- Optional `go2rtc.auth.username`/`password` in `config.yaml`, passed
+  through to go2rtc's own RTSP/HTTP API auth, for LAN-exposed setups.
+  Password is stored as plaintext deliberately (see `DESIGN.md`
+  "Security considerations" for why hashing it would break auth
+  entirely).
+- **Hardware validation status**: core path confirmed on a real Pi +
+  Camera Module 3 (install, service startup, JPEG snapshots, SSH-tunnel
+  viewing, LAN RTSP with auth challenge). The full checklist in
+  `README.md` "Hardware validation" (reboot persistence, failure/restart
+  drills) has not been executed end to end; treat those specific items
+  as unverified.
 
-## Milestone 2, Prusa Connect uploads, ✅ DONE
+## Milestone 2 — Prusa Connect uploads — ✅ DONE
 
 - `internal/prusaconnect`: `Uploader` captures a JPEG from go2rtc's own
   `/api/frame.jpeg` snapshot endpoint and PUTs it to Prusa Connect's
   webcam ingestion endpoint on an interval (`prusa_connect.interval_seconds`,
   default 10s). Not a subprocess like go2rtc, an in-process goroutine
   loop (see `DESIGN.md` "Prusa Connect uploader").
-- Credential flow is manual, as anticipated below: no in-app
-  registration/pairing. You create the camera in Prusa Connect's web UI
-  (Cameras -> Add camera -> "Other camera"), which issues a token, and
-  paste it into `prusa_connect.token`. `prusa_connect.fingerprint` is a
-  self-chosen stable identifier, not issued by Prusa.
+- Credential flow is manual: no in-app registration/pairing. You create
+  the camera in Prusa Connect's web UI (Cameras -> Add camera -> "Other
+  camera"), which issues a token, and paste it into
+  `prusa_connect.token`. `prusa_connect.fingerprint` is a self-chosen
+  stable identifier, not issued by Prusa.
 - Endpoint/headers (`PUT https://webcam.connect.prusa3d.com/c/snapshot`,
   `token`/`fingerprint` headers, `image/jpg` content-type) came from a
   working reference script the project owner had used previously against
-  the real API, not primary Prusa documentation, this resolves the
-  "Future research questions" entry below, though it means the details
-  weren't independently verified against Prusa's docs, only against a
-  script known to work in practice.
+  the real API, not primary Prusa documentation — the details weren't
+  independently verified against Prusa's docs, only against a script
+  known to work in practice (and now against MakerEye's own
+  implementation working in practice).
 - Upload state tracked and inspectable via `makereye status`
   (`prusa_connect: phase=... uploads=... failures=...`) and
   `makereye validate-config` (enabled/disabled + fingerprint, never the
@@ -76,77 +131,155 @@ future milestones is not.**
   registered but no image" during setup is expected if the printer
   itself isn't on, not a MakerEye or upload problem.
 
-## Milestone 3, MQTT telemetry and control, NOT STARTED
+## Milestone 3 — MQTT + Home Assistant integration — NOT STARTED
 
-- Optional MQTT client; MUST NOT be required for core operation.
-- Availability + system telemetry topics.
-- Stream/uploader control via MQTT commands, with acknowledgements.
-- Optional Home Assistant MQTT discovery.
+The usability foundation: after this milestone, everything that is
+CLI-only today (stream start/stop/restart, prusa start/stop/restart,
+status) is operable from Home Assistant, and later milestones plug new
+features into the same plumbing instead of building their own.
+
+- Optional MQTT client; MUST NOT be required for core operation
+  (streaming and Prusa Connect uploads keep working with `mqtt.enabled:
+  false`).
+- Availability topic (LWT) + telemetry: stream phase/PID/restarts,
+  Prusa Connect upload/failure counts, device identity.
+- Control with acknowledgements: stream start/stop/restart, prusa
+  start/stop/restart — mirroring the existing control-socket commands,
+  dispatched through the same daemon internals.
+- Home Assistant MQTT discovery, so entities appear automatically:
+  status sensors, switches for the stream and the uploader. Also
+  document how to point a HA `camera` entity at the go2rtc
+  MJPEG/snapshot URLs (that part needs no new code).
+- Broker credentials in `config.yaml` under `mqtt:`, same plaintext
+  policy and reasoning as the existing credentials (`DESIGN.md`
+  "Security considerations" and "Configuration model").
 - Config placeholder already present: `mqtt.enabled`.
-- **Possible addition, not committed yet**: spotlight brightness control
-  as an MQTT command, using `scripts/spotlight_ctl.sh`'s protocol (a
-  Wyze Cam v3 Spotlight Kit accessory driven directly by the Pi over USB,
-  unrelated to the Wyze camera itself). That script is currently
-  standalone and outside `internal/config`/the daemon; if this is picked
-  up, it needs a config section (device path, maybe a default brightness)
-  and a decision on whether it's generic "accessory light" support or
-  Wyze-Spotlight-specific, not just a raw shell-out.
+- **Research needed at implementation time**: exact HA MQTT discovery
+  topic/payload conventions so entities show up correctly (device
+  grouping, availability wiring, unique IDs).
 
-## Milestone 4, Manual timelapse, NOT STARTED
+## Milestone 4 — Lighting framework + Wyze Spotlight Kit — NOT STARTED
 
-- Start/stop jobs via CLI (and later MQTT).
-- Periodic snapshots from the shared camera pipeline (not a second camera
-  claim).
-- Render with ffmpeg (shell out, don't reimplement encoding).
-- Preserve source frames if rendering fails, so nothing is silently lost.
-- Progress/completion reporting.
+Lighting is a framework with pluggable backends, not a one-off Wyze
+integration — but this milestone doesn't need to be fully featured: the
+deliverable is the framework plus one working backend (the Wyze
+Spotlight Kit), with the config shaped so more backend types can be
+added later without breaking existing setups. Lands before timelapse so
+timelapse can build on it.
+
+- New optional `lighting:` config section, designed as a list of
+  lights, each with a name, a `type` (first supported type:
+  `wyze_spotlight`), and type-specific settings (for the spotlight:
+  serial device path, default `/dev/ttyUSB0`; default/startup
+  brightness).
+- Backend interface kept small to start: on/off + brightness 0-255.
+  Future backends extend it deliberately (e.g. color for addressable
+  strips), don't design speculatively for them now beyond the
+  type-per-light config shape.
+- First backend, this milestone: **Wyze Cam v3 Spotlight Kit** over USB
+  serial — off-the-shelf, cheap (~$8 on sale as of mid-2026),
+  plug-and-play, its power passthrough cable even powers the Pi Zero,
+  and the protocol is fully reverse-engineered (frame format + checksum
+  in `scripts/spotlight_ctl.sh`, validated against real hardware).
+- Future backend types (later milestones/contributions, not this one):
+  plain GPIO on/off (relay- or MOSFET-driven lights), PWM-dimmed GPIO,
+  addressable LED strips (WS2812 etc.).
+- Daemon-owned subsystem (in-process, like the Prusa uploader — writes
+  to a device, not a process to supervise). Advisory: a missing or
+  unplugged light is logged, never affects streaming.
+- CLI: control via the control socket (e.g. `makereye light <name>
+  <0-255|on|off>`).
+- MQTT/HA (per the usability rule, same milestone): each configured
+  light appears as a dimmable HA light entity via discovery, riding on
+  Milestone 3's plumbing.
+- `scripts/spotlight_ctl.sh` remains as the standalone/manual tool and
+  protocol documentation.
+
+## Milestone 5 — Manual timelapse — NOT STARTED
+
+- Start/stop jobs via CLI **and** MQTT/HA in the same milestone (per the
+  usability rule — the old "CLI now, MQTT later" phrasing of this
+  milestone is exactly what the rule exists to prevent).
+- Periodic snapshots from the shared go2rtc pipeline (same
+  `/api/frame.jpeg` pattern as `internal/prusaconnect` — not a second
+  camera claim).
+- Render with ffmpeg (shell out, don't reimplement encoding; ffmpeg is
+  already installed by `scripts/install.sh`).
+- Preserve source frames if rendering fails, so nothing is silently
+  lost.
+- Progress/completion reporting via `makereye status` and MQTT
+  (HA sensor: current job, frame count, last render result).
+- Storage design questions to answer at implementation time: output
+  location under the state dir, SD-card wear and free-space guardrails,
+  retention policy for frames and rendered files, how finished
+  timelapses get off the device (the web UI milestone adds
+  browse/download; until then, network file access or `scp`).
+- Optional lighting hook (if Milestone 4's `lighting:` is configured):
+  hold a configured brightness while a timelapse job is active, restore
+  after.
 - Config placeholder already present: `timelapse.enabled`.
 
-## Milestone 5, PrusaLink automatic timelapse, NOT STARTED
+## Milestone 6 — PrusaLink automatic timelapse — NOT STARTED
 
-- Detect printer job state via PrusaLink's local API.
-- Auto start/stop timelapses around print jobs.
+- Detect printer job state via PrusaLink's local API; auto start/stop
+  Milestone 5 timelapse jobs around print jobs.
 - Associate job metadata (filename, etc.) with output files.
+- Scope note (per design priority #2): Home Assistant users can already
+  get most of this once Milestones 3+5 exist, by driving MakerEye's
+  timelapse MQTT commands from HA's own PrusaLink integration — document
+  that recipe as part of this milestone. The on-device PrusaLink polling
+  this milestone adds is for setups without Home Assistant, and must not
+  fight with HA-driven control (last command wins, no flapping).
 - Config placeholder already present: `prusalink.enabled`.
+- **Research needed at implementation time**: PrusaLink's local API
+  surface for job state (endpoints, auth, REST vs websocket, how job
+  start/end is best detected).
 
-## Milestone 6, Motion-triggered operation, NOT STARTED
+## Milestone 7 — Local web interface — NOT STARTED
 
+Moved ahead of motion/AI: it's the no-Home-Assistant answer to the
+usability rule, and the last remaining reason to SSH in day-to-day is
+editing `config.yaml`.
+
+- Small appliance-style UI served by the daemon: status (stream, Prusa
+  Connect, lighting, timelapse), live view (embed/link go2rtc's stream
+  endpoints), config viewing and editing with the existing validation
+  (reject-on-invalid, never silently rewrite), timelapse
+  browsing/download.
+- No heavy frontend framework without a clearly compelling reason —
+  default assumption is server-rendered Go templates and a tiny amount
+  of vanilla JS.
+- Security design question to answer at implementation time: auth story
+  for the UI (reuse `go2rtc.auth`? separate credential?) and safe
+  defaults for its listen address (loopback-only by default, same as
+  go2rtc, with the same documented LAN-exposure tradeoffs).
+
+## Milestone 8 — Motion-triggered operation — NOT STARTED
+
+- Scope note (per design priority #2): once MQTT exists, motion-driven
+  behavior can often be composed in Home Assistant (or by pointing a
+  motion-capable NVR like Frigate at MakerEye's RTSP stream). This
+  milestone is for on-device detection where none of that infrastructure
+  exists.
 - Sustained motion as a generic "start a job" trigger (for non-Prusa
-  maker equipment).
+  maker equipment), publishing MQTT events HA can react to.
 - Configurable idle timeout to stop.
 - Stay focused on maker-equipment use cases, not general surveillance
   features (no face detection, no zones UI, etc.).
 - Config placeholder already present: `motion.enabled`.
+- **Research needed at implementation time**: detection approach —
+  frame-diff on go2rtc's stream vs. a dedicated capture path, evaluated
+  against whatever go2rtc/rpicam capabilities look like then, and
+  against the Pi Zero 2 W's CPU budget while encoding.
 
-## Milestone 7, AI monitoring, NOT STARTED
+## Milestone 9 — AI monitoring — NOT STARTED
 
 - Local print-failure detection (spaghetti detection, etc.).
-- Publish advisory events first; local printer pause control is a later,
-  explicitly-opt-in step, not part of the initial AI milestone.
+- Publish advisory events first (MQTT event → HA notification); local
+  printer pause control is a later, explicitly-opt-in step, not part of
+  the initial AI milestone.
 - Config placeholder already present: `ai.enabled`.
-
-## Milestone 8, Local web interface, NOT STARTED
-
-- Small appliance-style status/config UI.
-- No heavy frontend framework without a clearly compelling reason —
-  default assumption is server-rendered Go templates or a tiny amount of
-  vanilla JS.
-
-## Future research questions (deliberately not investigated yet)
-
-Recorded here per the Milestone 0/1 session's research boundaries, so the
-next session doesn't have to rediscover that these are open:
-
-- **PrusaLink**: local API surface for job state (endpoints, auth,
-  whether it's REST/websocket, how job start/end is best detected).
-  Needed at Milestone 5.
-- **Home Assistant MQTT discovery**: exact topic/payload conventions
-  MakerEye should emit so entities show up correctly. Needed at
-  Milestone 3.
-- **AI model choice**: what actually runs acceptably on a Pi Zero 2 W (if
-  anything) vs. requiring a more capable Pi for this feature, or an
-  off-device inference option. Needed at Milestone 7, may change the
-  hardware story for that milestone specifically.
-- **Motion detection approach**: frame-diff on go2rtc's stream vs. a
-  dedicated capture, needs revisiting against whatever go2rtc/rpicam
-  capabilities look like by Milestone 6.
+- **Research needed at implementation time**: what actually runs
+  acceptably on a Pi Zero 2 W (if anything) vs. requiring a more capable
+  Pi or an off-device inference option — may change the hardware story
+  for this milestone specifically.
