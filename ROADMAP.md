@@ -131,7 +131,7 @@ These apply across every milestone:
   registered but no image" during setup is expected if the printer
   itself isn't on, not a MakerEye or upload problem.
 
-## Milestone 3 — MQTT + Home Assistant integration — IMPLEMENTED, awaiting hardware validation
+## Milestone 3 — MQTT + Home Assistant integration — ✅ DONE
 
 The usability foundation: everything that was CLI-only (stream
 start/stop/restart, prusa start/stop/restart, status) is now operable
@@ -158,9 +158,12 @@ same plumbing instead of building their own.
 - Unit-tested against a fake paho client (discovery payloads, command
   dispatch, ack republish, offline LWT behavior); daemon smoke-tested
   against an unreachable broker.
-- **Awaiting hardware validation**: entities appearing/controllable in
-  a real HA instance via a real broker. Flip this milestone to DONE
-  once confirmed.
+- **Validated against a real Home Assistant + Mosquitto setup**: device
+  and all entities appeared via discovery with no HA-side steps,
+  switches/buttons control the daemon, sensors track state. Setup
+  finding worth recording: a "disconnected (retrying)" state against
+  HA's Mosquitto add-on was missing credentials, the add-on rejects
+  anonymous connections by default (per README's MQTT section).
 
 ## Milestone 4 — Lighting framework + Wyze Spotlight Kit — NOT STARTED
 
@@ -287,3 +290,31 @@ editing `config.yaml`.
   acceptably on a Pi Zero 2 W (if anything) vs. requiring a more capable
   Pi or an off-device inference option — may change the hardware story
   for this milestone specifically.
+
+## Candidate work, not yet scheduled
+
+- **Update over MQTT/Home Assistant** (single-command update exists
+  today: `scripts/update.sh` pulls/rebuilds/reinstalls/restarts). The
+  full no-SSH version has a clean design but real moving parts, so it's
+  recorded here rather than bolted onto Milestone 3:
+  - HA's MQTT discovery supports an `update` entity: MakerEye would
+    publish its installed version plus the latest available (upstream
+    `main` commit, or a release tag once releases exist), and HA shows
+    an "Update" card with an install button like any other device.
+  - Privilege separation is the crux: the daemon runs as the
+    unprivileged `makereye` user and must not gain root. Sketch: the
+    daemon writes a trigger file under `/var/lib/makereye`; a
+    root-owned `makereye-update.path` systemd unit watches it and
+    starts a oneshot `makereye-update.service` that runs
+    `scripts/update.sh`. No sudo rules, no polkit, auditable via
+    journald.
+  - "Latest available" needs a source of truth: polling the GitHub API
+    or `git fetch` on a timer. Fits naturally with the roadmap's
+    existing "install from published release binaries" future item,
+    at which point this becomes "compare tags, download binary" with
+    no on-device rebuild.
+- **Scheduled auto-update** (systemd timer running `scripts/update.sh`
+  nightly): trivially enabled once wanted, but deliberately not the
+  default — during active development an unattended pull can break the
+  camera while nobody is watching; user-triggered updates (button in
+  HA per the above) are the intended model.

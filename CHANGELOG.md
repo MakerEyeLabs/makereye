@@ -8,6 +8,10 @@ SemVer once tagged releases begin.
 
 ### Added
 
+- `scripts/update.sh`: single-command update for a device installed
+  from a git checkout — pulls the current branch, rebuilds, reinstalls
+  via `install.sh` (so new dependencies are picked up), restarts the
+  service, and prints status. Never touches an existing config.
 - Milestone 3: optional MQTT + Home Assistant integration
   (`internal/mqtt`). With `mqtt.enabled` and a broker configured,
   MakerEye publishes availability (LWT), state/telemetry, and appears

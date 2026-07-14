@@ -90,6 +90,21 @@ It is safe to run more than once and never deletes an existing config.
 **Future**: installing from a published GitHub release binary instead of
 building from source. Not built out this session, see `ROADMAP.md`.
 
+### Updating
+
+From the checkout on the device:
+
+```sh
+./scripts/update.sh
+```
+
+pulls the latest commit on the current branch, rebuilds, reinstalls
+(picking up any new dependencies via `install.sh`), restarts the
+service, and prints `makereye status`. Your `/etc/makereye/config.yaml`
+is never touched. A no-SSH update path (an update entity in Home
+Assistant with an install button) is sketched in `ROADMAP.md`
+"Candidate work".
+
 ### Uninstall
 
 ```sh
