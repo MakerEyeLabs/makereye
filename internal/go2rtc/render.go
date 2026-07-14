@@ -99,6 +99,40 @@ func ClientHostPort(listen string) string {
 	return net.JoinHostPort(host, port)
 }
 
+// AdvertiseHostPort maps a configured listen address to the address
+// clients elsewhere on the network should be told to use: wildcard
+// hosts become this device's primary LAN IP (falling back to loopback
+// when none can be determined), specific hosts pass through unchanged.
+// This is for display (e.g. `makereye status`), not for MakerEye's own
+// self-connections -- those use ClientHostPort.
+func AdvertiseHostPort(listen string) string {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return listen
+	}
+	switch host {
+	case "", "0.0.0.0", "::":
+		host = primaryIP()
+	}
+	return net.JoinHostPort(host, port)
+}
+
+// primaryIP returns the IP of the interface holding the default route,
+// found by "connecting" a UDP socket to a routable address -- no packet
+// is actually sent, connect on UDP only resolves the local endpoint.
+// 192.0.2.1 is TEST-NET-1, guaranteed non-local.
+func primaryIP() string {
+	conn, err := net.Dial("udp4", "192.0.2.1:9")
+	if err != nil {
+		return "127.0.0.1"
+	}
+	defer conn.Close()
+	if addr, ok := conn.LocalAddr().(*net.UDPAddr); ok {
+		return addr.IP.String()
+	}
+	return "127.0.0.1"
+}
+
 // URLs describes the client-facing endpoints exposed by a rendered go2rtc
 // configuration for a given stream name.
 type URLs struct {
@@ -109,21 +143,27 @@ type URLs struct {
 }
 
 // StreamURLs returns the URLs clients use to reach the stream named by
-// cfg.Stream.Name, based on the configured listen addresses. When
-// cfg.Go2rtc.Auth is set, the credentials are embedded (percent-encoded)
-// in the returned URLs, since that's what RTSP/HTTP clients expect --
-// callers that print these (e.g. `makereye status`) should treat the
-// output as sensitive.
+// cfg.Stream.Name, based on the configured listen addresses; wildcard
+// listen addresses are shown as this device's LAN IP (see
+// AdvertiseHostPort), since "0.0.0.0" is not something another machine
+// can dial. When cfg.Go2rtc.Auth is set, the credentials are embedded
+// (percent-encoded) in the returned URLs, since that's what RTSP/HTTP
+// clients expect -- callers that print these (e.g. `makereye status`)
+// should treat the output as sensitive.
 func StreamURLs(cfg *config.Config) URLs {
 	userinfo := ""
 	if cfg.Go2rtc.Auth.Username != "" {
 		userinfo = url.UserPassword(cfg.Go2rtc.Auth.Username, cfg.Go2rtc.Auth.Password).String() + "@"
 	}
 
+	rtsp := AdvertiseHostPort(cfg.Go2rtc.RTSPListen)
+	webrtc := AdvertiseHostPort(cfg.Go2rtc.WebRTCListen)
+	http := AdvertiseHostPort(cfg.Go2rtc.HTTPListen)
+
 	return URLs{
-		RTSP:     fmt.Sprintf("rtsp://%s%s/%s", userinfo, cfg.Go2rtc.RTSPListen, cfg.Stream.Name),
-		WebRTC:   fmt.Sprintf("http://%s%s/api/webrtc?src=%s", userinfo, cfg.Go2rtc.WebRTCListen, cfg.Stream.Name),
-		MJPEG:    fmt.Sprintf("http://%s%s/api/stream.mjpeg?src=%s", userinfo, cfg.Go2rtc.HTTPListen, cfg.Stream.Name),
-		Snapshot: fmt.Sprintf("http://%s%s/api/frame.jpeg?src=%s", userinfo, cfg.Go2rtc.HTTPListen, cfg.Stream.Name),
+		RTSP:     fmt.Sprintf("rtsp://%s%s/%s", userinfo, rtsp, cfg.Stream.Name),
+		WebRTC:   fmt.Sprintf("http://%s%s/api/webrtc?src=%s", userinfo, webrtc, cfg.Stream.Name),
+		MJPEG:    fmt.Sprintf("http://%s%s/api/stream.mjpeg?src=%s", userinfo, http, cfg.Stream.Name),
+		Snapshot: fmt.Sprintf("http://%s%s/api/frame.jpeg?src=%s", userinfo, http, cfg.Stream.Name),
 	}
 }

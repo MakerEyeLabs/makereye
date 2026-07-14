@@ -72,7 +72,7 @@ func TestUploaderUploadsSuccessfully(t *testing.T) {
 	}
 	defer u.Stop(context.Background())
 
-	waitForUploadCount(t, u, 1, 2*time.Second)
+	waitForUploadCount(t, u, 1, 4*time.Second)
 
 	if gotToken != cfg.PrusaConnect.Token {
 		t.Errorf("token header = %q, want %q", gotToken, cfg.PrusaConnect.Token)
@@ -122,7 +122,7 @@ func TestUploaderFetchesViaLoopbackWhenListenIsWildcard(t *testing.T) {
 	}
 	defer u.Stop(context.Background())
 
-	waitForUploadCount(t, u, 1, 2*time.Second)
+	waitForUploadCount(t, u, 1, 4*time.Second)
 	if st := u.Status(); st.FailureCount != 0 {
 		t.Errorf("failures = %d (last: %s), want 0", st.FailureCount, st.LastError)
 	}
@@ -154,7 +154,7 @@ func TestUploaderSendsGo2rtcBasicAuthWhenConfigured(t *testing.T) {
 	}
 	defer u.Stop(context.Background())
 
-	waitForUploadCount(t, u, 1, 2*time.Second)
+	waitForUploadCount(t, u, 1, 4*time.Second)
 
 	if !gotOK || gotUser != "admin" || gotPass != "hunter2" {
 		t.Errorf("go2rtc request auth = (%q, %q, ok=%v), want (admin, hunter2, true)", gotUser, gotPass, gotOK)
@@ -182,7 +182,7 @@ func TestUploaderRecordsFailureOnGo2rtcError(t *testing.T) {
 	}
 	defer u.Stop(context.Background())
 
-	waitForFailureCount(t, u, 1, 2*time.Second)
+	waitForFailureCount(t, u, 1, 4*time.Second)
 
 	st := u.Status()
 	if st.Phase != PhaseRunning {
@@ -214,7 +214,7 @@ func TestUploaderRecordsFailureOnPrusaNon2xx(t *testing.T) {
 	}
 	defer u.Stop(context.Background())
 
-	waitForFailureCount(t, u, 1, 2*time.Second)
+	waitForFailureCount(t, u, 1, 4*time.Second)
 
 	if !strings.Contains(u.Status().LastError, "401") {
 		t.Errorf("LastError = %q, want it to mention status 401", u.Status().LastError)
@@ -264,7 +264,7 @@ func TestUploaderStop(t *testing.T) {
 	if err := u.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitForUploadCount(t, u, 1, 2*time.Second)
+	waitForUploadCount(t, u, 1, 4*time.Second)
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

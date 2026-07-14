@@ -173,14 +173,18 @@ func (u *Uploader) loop(ctx context.Context) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	// Wait a full interval before the first capture instead of firing
+	// immediately: at daemon startup the uploader would otherwise race
+	// go2rtc binding its HTTP port and record a spurious failure on
+	// every boot.
 	for {
-		u.uploadOnce(ctx)
-
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		}
+
+		u.uploadOnce(ctx)
 	}
 }
 

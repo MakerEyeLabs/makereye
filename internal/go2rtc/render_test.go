@@ -1,6 +1,7 @@
 package go2rtc
 
 import (
+	"net"
 	"strings"
 	"testing"
 
@@ -104,6 +105,39 @@ func TestClientHostPort(t *testing.T) {
 		if got := ClientHostPort(in); got != want {
 			t.Errorf("ClientHostPort(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestAdvertiseHostPort(t *testing.T) {
+	// Specific hosts pass through untouched.
+	if got := AdvertiseHostPort("192.168.1.5:8554"); got != "192.168.1.5:8554" {
+		t.Errorf("AdvertiseHostPort(specific) = %q, want passthrough", got)
+	}
+	if got := AdvertiseHostPort("127.0.0.1:8554"); got != "127.0.0.1:8554" {
+		t.Errorf("AdvertiseHostPort(loopback) = %q, want passthrough", got)
+	}
+	// Wildcards become a real dialable host (exact IP depends on the
+	// machine; assert it's no longer a wildcard and the port survives).
+	for _, in := range []string{"0.0.0.0:8554", ":8554", "[::]:8554"} {
+		got := AdvertiseHostPort(in)
+		host, port, err := net.SplitHostPort(got)
+		if err != nil || port != "8554" {
+			t.Errorf("AdvertiseHostPort(%q) = %q, want valid host with port 8554", in, got)
+			continue
+		}
+		if host == "" || host == "0.0.0.0" || host == "::" {
+			t.Errorf("AdvertiseHostPort(%q) = %q, want non-wildcard host", in, got)
+		}
+	}
+}
+
+func TestStreamURLsAdvertiseRealHostForWildcardListen(t *testing.T) {
+	cfg := config.Default()
+	cfg.Go2rtc.RTSPListen = "0.0.0.0:8554"
+	cfg.Go2rtc.HTTPListen = "0.0.0.0:1984"
+	urls := StreamURLs(cfg)
+	if strings.Contains(urls.RTSP, "0.0.0.0") || strings.Contains(urls.Snapshot, "0.0.0.0") {
+		t.Errorf("URLs should not contain the wildcard bind address: %+v", urls)
 	}
 }
 
