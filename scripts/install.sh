@@ -129,6 +129,11 @@ create_user() {
 	if getent group video >/dev/null; then
 		usermod -a -G video makereye
 	fi
+	# dialout: USB serial devices (/dev/ttyUSB*) used by lighting
+	# backends such as the Wyze Spotlight Kit.
+	if getent group dialout >/dev/null; then
+		usermod -a -G dialout makereye
+	fi
 }
 
 create_directories() {

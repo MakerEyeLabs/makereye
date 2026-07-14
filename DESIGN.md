@@ -307,7 +307,8 @@ entities.
   actual protection on this credential at rest. See README.md
   "Network exposure and security" for user-facing guidance.
 - `makereye.service` runs as a dedicated unprivileged `makereye` system
-  user (in the `video` group for camera device access), not root.
+  user (in the `video` group for camera device access and `dialout`
+  for USB serial lighting devices), not root.
   `NoNewPrivileges=yes` and `ProtectHome=yes` are set.
   `ProtectSystem=strict` plus an explicit `DeviceAllow=` list were
   considered but **not** used: the exact camera device nodes touched by

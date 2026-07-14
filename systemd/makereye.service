@@ -14,8 +14,10 @@ TimeoutStopSec=20
 User=makereye
 Group=makereye
 # Camera device nodes (/dev/video*, /dev/media*, /dev/dma_heap/*) are
-# owned by the "video" group on Raspberry Pi OS.
-SupplementaryGroups=video
+# owned by the "video" group on Raspberry Pi OS; USB serial devices
+# (/dev/ttyUSB*, used by lighting backends like the Wyze Spotlight Kit)
+# by "dialout".
+SupplementaryGroups=video dialout
 
 RuntimeDirectory=makereye
 RuntimeDirectoryMode=0750

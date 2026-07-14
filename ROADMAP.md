@@ -165,7 +165,7 @@ same plumbing instead of building their own.
   HA's Mosquitto add-on was missing credentials, the add-on rejects
   anonymous connections by default (per README's MQTT section).
 
-## Milestone 4 — Lighting framework + Wyze Spotlight Kit — IMPLEMENTED, awaiting hardware validation
+## Milestone 4 — Lighting framework + Wyze Spotlight Kit — ✅ DONE
 
 Lighting is a framework with pluggable backends, not a one-off Wyze
 integration. The deliverable is the framework plus one working backend
@@ -200,10 +200,13 @@ can be added later without breaking existing setups.
   topics, ON restores last brightness).
 - `scripts/spotlight_ctl.sh` remains as the standalone/manual tool and
   protocol documentation.
-- **Awaiting hardware validation**: real spotlight driven through the
-  daemon (CLI + HA dimmer), including brightness levels whose frames
-  contain 0x0A (e.g. 10 and 166), which the shell script couldn't send
-  correctly. Flip to DONE once confirmed.
+- **Validated on real hardware**: spotlight driven through the daemon
+  from the CLI and from Home Assistant (dimmable light entity over
+  MQTT), including brightness 10, whose frame contains 0x0A and which
+  the reference shell script couldn't send correctly. Setup finding
+  fixed during validation: the `makereye` user needed the `dialout`
+  group for `/dev/ttyUSB*` access (now granted by the systemd unit and
+  the installer).
 
 ## Milestone 5 — Manual timelapse — NOT STARTED
 
