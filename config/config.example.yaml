@@ -130,9 +130,12 @@ mqtt:
   # Use ssl:// for TLS brokers.
   broker_url: ""
 
-  # Broker credentials. Password is stored as plaintext here (the
-  # broker needs the literal credential, same policy as go2rtc.auth
-  # above). Username may be set alone; password requires username.
+  # Broker credentials. Optional: leave both empty to connect
+  # anonymously, if your broker allows it (Home Assistant's Mosquitto
+  # add-on does NOT by default -- create a broker user for MakerEye).
+  # Password is stored as plaintext here (the broker needs the literal
+  # credential, same policy as go2rtc.auth above). Username may be set
+  # alone; password requires username.
   username: ""
   password: ""
 

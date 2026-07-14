@@ -326,3 +326,48 @@ func TestUnknownSwitchPayloadIsIgnored(t *testing.T) {
 		t.Errorf("unknown payload should not dispatch any hook, got %v", c.list())
 	}
 }
+
+func TestDiscoveryPayloadsIncludeOrigin(t *testing.T) {
+	_, fc, _ := startTestBridge(t, testConfig())
+	recs := fc.publishedTo("homeassistant/switch/makereye_bench_printer_1/stream/config")
+	if len(recs) == 0 {
+		t.Fatal("missing stream switch discovery publish")
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(recs[0].payload, &doc); err != nil {
+		t.Fatalf("discovery payload not valid JSON: %v", err)
+	}
+	origin, ok := doc["origin"].(map[string]any)
+	if !ok || origin["name"] != "MakerEye" {
+		t.Errorf("discovery payload should include origin with name MakerEye, got %v", doc["origin"])
+	}
+}
+
+func TestHABirthMessageRepublishesDiscoveryAndState(t *testing.T) {
+	_, fc, _ := startTestBridge(t, testConfig())
+
+	h := fc.handlerFor("homeassistant/status")
+	if h == nil {
+		t.Fatal("no handler subscribed for the HA birth topic homeassistant/status")
+	}
+
+	discoveryTopic := "homeassistant/switch/makereye_bench_printer_1/stream/config"
+	discoveryBefore := len(fc.publishedTo(discoveryTopic))
+	stateBefore := len(fc.publishedTo("makereye/bench_printer_1/status"))
+
+	h(fc, fakeMessage{topic: "homeassistant/status", payload: []byte("online")})
+
+	if got := len(fc.publishedTo(discoveryTopic)); got != discoveryBefore+1 {
+		t.Errorf("expected discovery republish on HA birth, got %d -> %d", discoveryBefore, got)
+	}
+	if got := len(fc.publishedTo("makereye/bench_printer_1/status")); got != stateBefore+1 {
+		t.Errorf("expected state republish on HA birth, got %d -> %d", stateBefore, got)
+	}
+
+	// HA's will message ("offline" on the same topic) must not trigger
+	// a republish storm.
+	h(fc, fakeMessage{topic: "homeassistant/status", payload: []byte("offline")})
+	if got := len(fc.publishedTo(discoveryTopic)); got != discoveryBefore+1 {
+		t.Errorf("HA 'offline' status should not republish discovery, got %d publishes", got)
+	}
+}

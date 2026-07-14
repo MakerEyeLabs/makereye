@@ -240,6 +240,22 @@ func (b *Bridge) onConnect(client paho.Client) {
 		client.Subscribe(base+"/prusa/restart", 1, b.pressHandler("prusa restart", b.hooks.PrusaRestart))
 	}
 
+	// Home Assistant publishes "online" to <discovery_prefix>/status
+	// (its birth message) when it starts. Republishing discovery and
+	// state then makes entities converge immediately after an HA
+	// restart instead of waiting for the periodic refresh -- the
+	// integration pattern HA's MQTT docs recommend.
+	client.Subscribe(b.cfg.MQTT.DiscoveryPrefix+"/status", 1, func(c paho.Client, msg paho.Message) {
+		if strings.TrimSpace(string(msg.Payload())) != "online" {
+			return
+		}
+		b.logger.Info("home assistant came online, republishing discovery and state")
+		for topic, payload := range b.discoveryConfigs() {
+			c.Publish(topic, 0, true, payload)
+		}
+		b.publishState()
+	})
+
 	b.publishState()
 }
 
@@ -334,12 +350,20 @@ func (b *Bridge) discoveryConfigs() map[string][]byte {
 		"model":        "MakerEye camera appliance",
 		"sw_version":   version.String(),
 	}
+	// origin identifies the integration publishing these entities;
+	// recommended by HA's MQTT discovery docs for debuggability.
+	origin := map[string]any{
+		"name":        "MakerEye",
+		"sw_version":  version.Version,
+		"support_url": "https://github.com/MakerEyeLabs/makereye",
+	}
 	common := func(name, uniqueSuffix string) map[string]any {
 		return map[string]any{
 			"name":               name,
 			"unique_id":          node + "_" + uniqueSuffix,
 			"availability_topic": b.availabilityTopic(),
 			"device":             device,
+			"origin":             origin,
 		}
 	}
 	merge := func(m map[string]any, extra map[string]any) map[string]any {

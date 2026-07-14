@@ -264,6 +264,12 @@ mqtt:
   password: "<broker password>"
 ```
 
+Credentials are optional in MakerEye — leave both empty to connect
+anonymously — but the broker must allow it, and HA's Mosquitto add-on
+disables anonymous access by default, so in the standard setup you'll
+create a broker user (a dedicated HA user, or a user under the add-on's
+`logins:` option) and put its credentials here.
+
 and `sudo systemctl restart makereye`. A "MakerEye" device appears in
 HA (Settings → Devices & Services → MQTT) with:
 
