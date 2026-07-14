@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/MakerEyeLabs/makereye/internal/config"
+	"github.com/MakerEyeLabs/makereye/internal/go2rtc"
 )
 
 // snapshotURL is Prusa Connect's fixed webcam snapshot ingestion
@@ -206,7 +207,8 @@ func (u *Uploader) fetchSnapshot(ctx context.Context) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
 
-	url := fmt.Sprintf("http://%s/api/frame.jpeg?src=%s", u.cfg.Go2rtc.HTTPListen, u.cfg.Stream.Name)
+	url := fmt.Sprintf("http://%s/api/frame.jpeg?src=%s",
+		go2rtc.ClientHostPort(u.cfg.Go2rtc.HTTPListen), u.cfg.Stream.Name)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err

@@ -182,7 +182,7 @@ func (s *Supervisor) HealthCheck(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	url := fmt.Sprintf("http://%s/api", s.cfg.Go2rtc.HTTPListen)
+	url := fmt.Sprintf("http://%s/api", ClientHostPort(s.cfg.Go2rtc.HTTPListen))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err

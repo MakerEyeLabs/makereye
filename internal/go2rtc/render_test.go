@@ -91,6 +91,22 @@ func TestRenderIncludesAuthWhenSet(t *testing.T) {
 	}
 }
 
+func TestClientHostPort(t *testing.T) {
+	cases := map[string]string{
+		"127.0.0.1:1984":   "127.0.0.1:1984",
+		"192.168.1.5:1984": "192.168.1.5:1984",
+		"0.0.0.0:1984":     "127.0.0.1:1984",
+		":1984":            "127.0.0.1:1984",
+		"[::]:1984":        "127.0.0.1:1984",
+		"not-an-addr":      "not-an-addr",
+	}
+	for in, want := range cases {
+		if got := ClientHostPort(in); got != want {
+			t.Errorf("ClientHostPort(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestRenderOmitsAuthWhenUnset(t *testing.T) {
 	out, err := Render(config.Default())
 	if err != nil {

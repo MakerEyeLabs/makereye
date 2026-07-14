@@ -96,6 +96,38 @@ func TestUploaderUploadsSuccessfully(t *testing.T) {
 	}
 }
 
+func TestUploaderFetchesViaLoopbackWhenListenIsWildcard(t *testing.T) {
+	go2rtcSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("jpeg"))
+	}))
+	defer go2rtcSrv.Close()
+
+	prusaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer prusaSrv.Close()
+
+	cfg := testConfig()
+	u := newTestUploader(cfg, go2rtcSrv, prusaSrv)
+	// Simulate a LAN-exposed listen address: the httptest server is
+	// bound on 127.0.0.1:<port>, but the config says 0.0.0.0:<port> --
+	// the uploader must dial loopback, not the wildcard address.
+	_, port, _ := strings.Cut(strings.TrimPrefix(go2rtcSrv.URL, "http://"), ":")
+	cfg.Go2rtc.HTTPListen = "0.0.0.0:" + port
+
+	ctx := context.Background()
+	if err := u.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer u.Stop(context.Background())
+
+	waitForUploadCount(t, u, 1, 2*time.Second)
+	if st := u.Status(); st.FailureCount != 0 {
+		t.Errorf("failures = %d (last: %s), want 0", st.FailureCount, st.LastError)
+	}
+}
+
 func TestUploaderSendsGo2rtcBasicAuthWhenConfigured(t *testing.T) {
 	var gotUser, gotPass string
 	var gotOK bool

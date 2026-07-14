@@ -4,6 +4,7 @@ package go2rtc
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 
 	"gopkg.in/yaml.v3"
@@ -77,6 +78,25 @@ func Render(cfg *config.Config) ([]byte, error) {
 		return nil, fmt.Errorf("marshaling go2rtc config: %w", err)
 	}
 	return out, nil
+}
+
+// ClientHostPort maps a configured listen address to an address a
+// client on the same host can actually dial. Wildcard hosts ("",
+// "0.0.0.0", "::") mean "bind every interface" and are not meaningful
+// dial targets, so they become loopback; anything else passes through
+// unchanged. Use this whenever MakerEye talks to its own go2rtc (Prusa
+// snapshot fetches, health checks) so a LAN-exposed listen address
+// doesn't break self-connections.
+func ClientHostPort(listen string) string {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return listen
+	}
+	switch host {
+	case "", "0.0.0.0", "::":
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
 }
 
 // URLs describes the client-facing endpoints exposed by a rendered go2rtc
