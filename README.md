@@ -271,7 +271,10 @@ create a broker user (a dedicated HA user, or a user under the add-on's
 `logins:` option) and put its credentials here.
 
 and `sudo systemctl restart makereye`. A "MakerEye" device appears in
-HA (Settings → Devices & Services → MQTT) with:
+HA (Settings → Devices & Services → MQTT) **automatically** — do not
+use HA's manual "add MQTT device" dialog, that flow is for devices
+that can't announce themselves and would just create a hand-managed
+duplicate. The discovered device has:
 
 - a **Stream** switch and a **Restart stream** button,
 - a **Prusa Connect uploads** switch and restart button (only when
