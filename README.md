@@ -451,6 +451,12 @@ Behavior worth knowing:
   preserved, actionable error) if free space drops below
   `minimum_free_space_mb`. MakerEye never deletes old jobs on its own —
   clean up explicitly, or point `output_dir` at bigger storage.
+- **`output_dir` cannot live under `/home`.** The service runs with
+  systemd's `ProtectHome` hardening and cannot see home directories;
+  use the default state dir, or a mount under `/mnt`/`/media`.
+- **Command failures are visible in HA** via the "Last command result"
+  sensor (e.g. a start refused for low disk space), in addition to
+  `journalctl -u makereye`.
 - **Storage estimate**: a 1080p JPEG frame from the stream is roughly
   300-600 KB, so a 30-second interval running 24 hours is ~2,880 frames
   ≈ 1-2 GB plus the rendered MP4. For long-running timelapses, prefer

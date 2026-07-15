@@ -74,7 +74,8 @@ type Manager struct {
 	heldLight string // name of the light a hold is applied to, "" if none
 	prevLight int    // that light's level before the hold
 	loaded    bool
-	shutdown  bool // daemon is stopping: active jobs stay "capturing" on disk
+	initErr   error // Start failure, surfaced by every later operation
+	shutdown  bool  // daemon is stopping: active jobs stay "capturing" on disk
 }
 
 // NewManager creates a Manager. Call Start to load state from disk.
@@ -126,12 +127,20 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	dir := m.cfg.TimelapseOutputDir()
 	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return fmt.Errorf("creating timelapse output dir %q: %w", dir, err)
+		err = fmt.Errorf("creating timelapse output dir %q: %w (note: the service cannot use paths under /home -- ProtectHome -- and needs write access; /var/lib/makereye, /mnt, or /media work)", dir, err)
+		m.mu.Lock()
+		m.initErr = err
+		m.mu.Unlock()
+		return err
 	}
 
 	jobs, err := loadJobs(dir)
 	if err != nil {
-		return fmt.Errorf("loading timelapse jobs from %q: %w", dir, err)
+		err = fmt.Errorf("loading timelapse jobs from %q: %w", dir, err)
+		m.mu.Lock()
+		m.initErr = err
+		m.mu.Unlock()
+		return err
 	}
 
 	var toResume *Job
@@ -215,6 +224,11 @@ func (m *Manager) StartJob(params JobParams) (Job, error) {
 	if !m.loaded {
 		m.mu.Unlock()
 		return Job{}, fmt.Errorf("timelapse is not running")
+	}
+	if m.initErr != nil {
+		err := m.initErr
+		m.mu.Unlock()
+		return Job{}, fmt.Errorf("timelapse failed to initialize: %w", err)
 	}
 	if m.active != nil {
 		id := m.active.ID
@@ -459,7 +473,7 @@ func (m *Manager) checkFreeSpace() error {
 	}
 	free, err := m.freeBytes(m.cfg.TimelapseOutputDir())
 	if err != nil {
-		return fmt.Errorf("checking free space: %w", err)
+		return fmt.Errorf("checking free space for %q: %w (note: the service cannot access paths under /home -- ProtectHome)", m.cfg.TimelapseOutputDir(), err)
 	}
 	if free < minBytes {
 		return fmt.Errorf("free space %d MB is below the configured minimum %d MB; capture stopped, frames preserved (free up space or lower timelapse.minimum_free_space_mb)",

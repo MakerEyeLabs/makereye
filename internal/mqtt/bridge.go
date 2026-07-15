@@ -153,6 +153,27 @@ func (b *Bridge) baseTopic() string {
 
 func (b *Bridge) availabilityTopic() string { return b.baseTopic() + "/availability" }
 func (b *Bridge) statusTopic() string       { return b.baseTopic() + "/status" }
+func (b *Bridge) commandResultTopic() string {
+	return b.baseTopic() + "/last_command_result"
+}
+
+// reportCommand publishes the outcome of an MQTT-initiated command so
+// failures are visible in Home Assistant (the "Last command result"
+// sensor), not only in journald. Retained, so the most recent outcome
+// survives HA restarts.
+func (b *Bridge) reportCommand(name string, err error) {
+	result := name + ": ok"
+	if err != nil {
+		result = name + ": " + err.Error()
+		b.logger.Warn("mqtt command failed", "command", name, "error", err)
+	}
+	b.mu.Lock()
+	client := b.client
+	b.mu.Unlock()
+	if client != nil {
+		client.Publish(b.commandResultTopic(), 0, true, result)
+	}
+}
 
 // Start connects to the broker in the background and returns
 // immediately. A broker that is down is not an error: paho keeps
@@ -335,9 +356,7 @@ func (b *Bridge) timelapseStartHandler() paho.MessageHandler {
 
 		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 		defer cancel()
-		if err := b.hooks.TimelapseStart(ctx, "", interval, fps); err != nil {
-			b.logger.Warn("mqtt timelapse start failed", "error", err)
-		}
+		b.reportCommand("timelapse start", b.hooks.TimelapseStart(ctx, "", interval, fps))
 		b.publishState()
 	}
 }
@@ -376,9 +395,7 @@ func (b *Bridge) lightSwitchHandler(name string) paho.MessageHandler {
 			b.logger.Warn("mqtt: unknown light payload", "light", name, "payload", payload)
 			return
 		}
-		if err != nil {
-			b.logger.Warn("mqtt light command failed", "light", name, "payload", payload, "error", err)
-		}
+		b.reportCommand("light "+name+" "+strings.ToLower(payload), err)
 		b.publishState()
 	}
 }
@@ -393,9 +410,7 @@ func (b *Bridge) lightBrightnessHandler(name string) paho.MessageHandler {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 		defer cancel()
-		if err := b.hooks.LightSet(ctx, name, level); err != nil {
-			b.logger.Warn("mqtt light brightness command failed", "light", name, "level", level, "error", err)
-		}
+		b.reportCommand(fmt.Sprintf("light %s brightness %d", name, level), b.hooks.LightSet(ctx, name, level))
 		b.publishState()
 	}
 }
@@ -418,9 +433,7 @@ func (b *Bridge) commandHandler(name string, start, stop func(context.Context) e
 			b.logger.Warn("mqtt: unknown switch payload", "entity", name, "payload", payload)
 			return
 		}
-		if err != nil {
-			b.logger.Warn("mqtt command failed", "entity", name, "payload", payload, "error", err)
-		}
+		b.reportCommand(name+" "+strings.ToLower(payload), err)
 		b.publishState()
 	}
 }
@@ -431,9 +444,7 @@ func (b *Bridge) pressHandler(name string, hook func(context.Context) error) pah
 	return func(_ paho.Client, _ paho.Message) {
 		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 		defer cancel()
-		if err := hook(ctx); err != nil {
-			b.logger.Warn("mqtt command failed", "entity", name, "error", err)
-		}
+		b.reportCommand(name, hook(ctx))
 		b.publishState()
 	}
 }
@@ -545,6 +556,10 @@ func (b *Bridge) discoveryConfigs() map[string][]byte {
 			common("Stream phase", "stream_phase"), map[string]any{
 				"state_topic":    b.statusTopic(),
 				"value_template": "{{ value_json.stream_phase }}",
+			}),
+		fmt.Sprintf("%s/sensor/%s/last_command_result/config", b.cfg.MQTT.DiscoveryPrefix, node): merge(
+			common("Last command result", "last_command_result"), map[string]any{
+				"state_topic": b.commandResultTopic(),
 			}),
 	}
 	if b.prusaEnabled() {

@@ -173,7 +173,9 @@ timelapse:
 
   # Where job directories (frames, manifest, rendered video) live.
   # Empty means <system.state_dir>/timelapses. Point this at a mounted
-  # NAS share to avoid SD-card wear entirely.
+  # NAS share (e.g. under /mnt or /media) to avoid SD-card wear
+  # entirely. NOTE: paths under /home do NOT work -- the service runs
+  # with systemd's ProtectHome and cannot see them.
   output_dir: ""
 
   # Defaults for new jobs; both can be overridden per job from the CLI

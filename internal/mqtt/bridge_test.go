@@ -516,6 +516,64 @@ func TestTimelapseEntitiesOmittedWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestCommandOutcomesPublishedToResultSensor(t *testing.T) {
+	cfg := testConfig()
+	fc := newFakeClient()
+	c := &calls{}
+	hooks := Hooks{
+		StreamStart:   c.record("stream-start"),
+		StreamStop:    func(context.Context) error { return fmt.Errorf("boom: stream jammed") },
+		StreamRestart: c.record("stream-restart"),
+		Status:        func() Status { return Status{StreamPhase: "running"} },
+	}
+	hooks.TimelapseStart = func(context.Context, string, int, int) error {
+		return fmt.Errorf("free space too low")
+	}
+	hooks.TimelapseStop = func(context.Context) error { return nil }
+	hooks.TimelapseRenderLast = func(context.Context) error { return nil }
+
+	b := NewBridge(cfg, testLogger(), hooks)
+	b.newClient = func(*paho.ClientOptions) paho.Client { return fc }
+	if err := b.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { b.Stop(context.Background()) })
+	b.onConnect(fc)
+
+	resultTopic := "makereye/bench_printer_1/last_command_result"
+
+	// Discovery for the result sensor exists.
+	if recs := fc.publishedTo("homeassistant/sensor/makereye_bench_printer_1/last_command_result/config"); len(recs) == 0 {
+		t.Error("missing last_command_result sensor discovery")
+	}
+
+	// A failing command publishes its error.
+	h := fc.handlerFor("makereye/bench_printer_1/stream/set")
+	h(fc, fakeMessage{payload: []byte("OFF")})
+	results := fc.publishedTo(resultTopic)
+	if len(results) == 0 || !strings.Contains(string(results[len(results)-1].payload), "stream jammed") {
+		t.Errorf("expected failure published to result sensor, got %v", results)
+	}
+	if !results[len(results)-1].retained {
+		t.Error("command result should be retained")
+	}
+
+	// A failing timelapse start publishes its error too.
+	tlStart := fc.handlerFor("makereye/bench_printer_1/timelapse/start")
+	tlStart(fc, fakeMessage{payload: []byte("PRESS")})
+	results = fc.publishedTo(resultTopic)
+	if !strings.Contains(string(results[len(results)-1].payload), "free space too low") {
+		t.Errorf("expected timelapse start failure published, got %q", results[len(results)-1].payload)
+	}
+
+	// A succeeding command publishes ok.
+	h(fc, fakeMessage{payload: []byte("ON")})
+	results = fc.publishedTo(resultTopic)
+	if !strings.Contains(string(results[len(results)-1].payload), "ok") {
+		t.Errorf("expected ok result, got %q", results[len(results)-1].payload)
+	}
+}
+
 func TestDiscoveryPayloadsIncludeOrigin(t *testing.T) {
 	_, fc, _ := startTestBridge(t, testConfig())
 	recs := fc.publishedTo("homeassistant/switch/makereye_bench_printer_1/stream/config")
