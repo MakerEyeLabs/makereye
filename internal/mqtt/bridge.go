@@ -53,6 +53,14 @@ type Status struct {
 	TimelapseFailures   int    `json:"timelapse_failures"`
 	TimelapseLastResult string `json:"timelapse_last_result"`
 	TimelapseOutput     string `json:"timelapse_output"`
+
+	// LastError is the newest error recorded by any subsystem
+	// (stream/prusa/timelapse), prefixed with its origin, with
+	// LastErrorAt as its RFC3339 timestamp. Empty when nothing has
+	// errored. Command failures are reported separately (the "Last
+	// command result" sensor).
+	LastError   string `json:"last_error"`
+	LastErrorAt string `json:"last_error_at"`
 }
 
 // Hooks are the daemon operations the bridge dispatches MQTT commands
@@ -560,6 +568,11 @@ func (b *Bridge) discoveryConfigs() map[string][]byte {
 		fmt.Sprintf("%s/sensor/%s/last_command_result/config", b.cfg.MQTT.DiscoveryPrefix, node): merge(
 			common("Last command result", "last_command_result"), map[string]any{
 				"state_topic": b.commandResultTopic(),
+			}),
+		fmt.Sprintf("%s/sensor/%s/last_error/config", b.cfg.MQTT.DiscoveryPrefix, node): merge(
+			common("Last error", "last_error"), map[string]any{
+				"state_topic":    b.statusTopic(),
+				"value_template": "{{ value_json.last_error }}",
 			}),
 	}
 	if b.prusaEnabled() {

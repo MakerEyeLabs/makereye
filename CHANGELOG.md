@@ -8,6 +8,12 @@ SemVer once tagged releases begin.
 
 ### Added
 
+- Device-wide error visibility in Home Assistant: a "Last command
+  result" sensor reporting the outcome of every MQTT-initiated command,
+  and a "Last error" sensor showing the newest runtime error from any
+  subsystem (stream, Prusa Connect, timelapse; errors are now
+  timestamped internally so "newest" is well-defined). Found during
+  hardware validation: failures previously went only to journald.
 - Milestone 5: manual timelapse (`internal/timelapse`). One capture job
   at a time from the shared snapshot source, durable per-job state
   (atomic manifests, zero-padded frame sequences, never deleting frames

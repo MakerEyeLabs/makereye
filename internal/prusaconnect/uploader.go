@@ -49,6 +49,9 @@ type State struct {
 	UploadCount  int
 	FailureCount int
 	LastError    string
+	// LastErrorAt is when LastError was recorded, so consumers can
+	// order errors across subsystems.
+	LastErrorAt  time.Time
 	LastUploadAt time.Time
 }
 
@@ -235,6 +238,7 @@ func (u *Uploader) recordFailure(err error) {
 	u.mu.Lock()
 	u.state.FailureCount++
 	u.state.LastError = err.Error()
+	u.state.LastErrorAt = time.Now()
 	u.mu.Unlock()
 }
 

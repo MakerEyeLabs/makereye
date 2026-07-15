@@ -41,6 +41,9 @@ type State struct {
 	StartedAt    time.Time
 	RestartCount int
 	LastError    string
+	// LastErrorAt is when LastError was recorded, so consumers can
+	// order errors across subsystems.
+	LastErrorAt time.Time
 }
 
 const (
@@ -328,5 +331,6 @@ func terminate(cmd *exec.Cmd) {
 func (s *Supervisor) setError(err error) {
 	s.mu.Lock()
 	s.state.LastError = err.Error()
+	s.state.LastErrorAt = time.Now()
 	s.mu.Unlock()
 }

@@ -139,6 +139,9 @@ func (m *Manager) setRenderResult(job *Job, phase Phase, lastError string) {
 	m.mu.Lock()
 	job.Phase = phase
 	job.LastError = lastError
+	if lastError != "" {
+		job.LastErrorAt = time.Now()
+	}
 	m.mu.Unlock()
 	if phase == PhaseRenderFailed {
 		m.logger.Error("timelapse render failed", "job", job.ID, "error", lastError)

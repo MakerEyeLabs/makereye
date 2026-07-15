@@ -574,6 +574,46 @@ func TestCommandOutcomesPublishedToResultSensor(t *testing.T) {
 	}
 }
 
+func TestLastErrorSensorAndStatusField(t *testing.T) {
+	cfg := testConfig()
+	fc := newFakeClient()
+	hooks := Hooks{
+		StreamStart:   func(context.Context) error { return nil },
+		StreamStop:    func(context.Context) error { return nil },
+		StreamRestart: func(context.Context) error { return nil },
+		Status: func() Status {
+			return Status{
+				StreamPhase: "running",
+				LastError:   "prusa_connect: uploading to Prusa Connect: status 401",
+				LastErrorAt: "2026-07-15T01:02:03Z",
+			}
+		},
+	}
+	b := NewBridge(cfg, testLogger(), hooks)
+	b.newClient = func(*paho.ClientOptions) paho.Client { return fc }
+	if err := b.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { b.Stop(context.Background()) })
+	b.onConnect(fc)
+
+	if recs := fc.publishedTo("homeassistant/sensor/makereye_bench_printer_1/last_error/config"); len(recs) == 0 {
+		t.Error("missing last_error sensor discovery")
+	}
+
+	status := fc.publishedTo("makereye/bench_printer_1/status")
+	if len(status) == 0 {
+		t.Fatal("expected status publish")
+	}
+	var st Status
+	if err := json.Unmarshal(status[len(status)-1].payload, &st); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(st.LastError, "status 401") || st.LastErrorAt == "" {
+		t.Errorf("status last_error = %q at %q, want the aggregated error with timestamp", st.LastError, st.LastErrorAt)
+	}
+}
+
 func TestDiscoveryPayloadsIncludeOrigin(t *testing.T) {
 	_, fc, _ := startTestBridge(t, testConfig())
 	recs := fc.publishedTo("homeassistant/switch/makereye_bench_printer_1/stream/config")

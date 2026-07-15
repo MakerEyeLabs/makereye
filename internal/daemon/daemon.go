@@ -102,6 +102,17 @@ func (d *Daemon) mqttStatus() mqtt.Status {
 		PrusaFailures:  pst.FailureCount,
 		TimelapsePhase: "idle",
 	}
+	// Newest error across subsystems, so one HA sensor answers "what
+	// went wrong last" for the whole device.
+	newestMsg, newestAt := "", time.Time{}
+	consider := func(origin, msg string, at time.Time) {
+		if msg != "" && at.After(newestAt) {
+			newestMsg, newestAt = origin+": "+msg, at
+		}
+	}
+	consider("stream", st.LastError, st.LastErrorAt)
+	consider("prusa_connect", pst.LastError, pst.LastErrorAt)
+
 	if d.cfg.Timelapse.Enabled {
 		job, ok := d.lapse.Active()
 		if !ok {
@@ -119,7 +130,13 @@ func (d *Daemon) mqttStatus() mqtt.Status {
 			case job.LastError != "":
 				s.TimelapseLastResult = job.LastError
 			}
+			consider("timelapse", job.LastError, job.LastErrorAt)
 		}
+	}
+
+	if newestMsg != "" {
+		s.LastError = newestMsg
+		s.LastErrorAt = newestAt.Format(time.RFC3339)
 	}
 	return s
 }

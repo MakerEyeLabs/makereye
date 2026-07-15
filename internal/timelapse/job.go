@@ -53,6 +53,7 @@ type Job struct {
 	FrameCount      int       `json:"frame_count"`
 	FailureCount    int       `json:"failure_count"`
 	LastError       string    `json:"last_error,omitempty"`
+	LastErrorAt     time.Time `json:"last_error_at,omitzero"`
 	// Dir is the absolute job directory; derived at load, not trusted
 	// from the manifest (the tree may have been moved).
 	Dir string `json:"-"`

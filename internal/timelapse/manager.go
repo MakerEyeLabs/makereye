@@ -153,6 +153,7 @@ func (m *Manager) Start(ctx context.Context) error {
 			} else {
 				j.Phase = PhaseInterrupted
 				j.LastError = "daemon stopped while job was active"
+				j.LastErrorAt = time.Now()
 				_ = saveManifest(j)
 			}
 		}
@@ -168,6 +169,7 @@ func (m *Manager) Start(ctx context.Context) error {
 				"job", toResume.ID, "error", err)
 			toResume.Phase = PhaseInterrupted
 			toResume.LastError = "resume failed: " + err.Error()
+			toResume.LastErrorAt = time.Now()
 			_ = saveManifest(toResume)
 		}
 	}
@@ -402,6 +404,7 @@ func (m *Manager) captureLoop(job *Job, stopCh chan struct{}) {
 		if err := m.checkFreeSpace(); err != nil {
 			m.mu.Lock()
 			job.LastError = err.Error()
+			job.LastErrorAt = time.Now()
 			m.mu.Unlock()
 			finalPhase = PhaseCaptureFailed
 			m.logger.Error("timelapse capture stopped", "job", job.ID, "error", err)
@@ -413,6 +416,7 @@ func (m *Manager) captureLoop(job *Job, stopCh chan struct{}) {
 			m.mu.Lock()
 			job.FailureCount++
 			job.LastError = err.Error()
+			job.LastErrorAt = time.Now()
 			m.mu.Unlock()
 			m.logger.Warn("timelapse frame capture failed",
 				"job", job.ID, "consecutive", consecutive, "error", err)
@@ -420,6 +424,7 @@ func (m *Manager) captureLoop(job *Job, stopCh chan struct{}) {
 				m.mu.Lock()
 				job.LastError = fmt.Sprintf("%d consecutive capture failures, last: %s",
 					consecutive, err)
+				job.LastErrorAt = time.Now()
 				m.mu.Unlock()
 				finalPhase = PhaseCaptureFailed
 				return
