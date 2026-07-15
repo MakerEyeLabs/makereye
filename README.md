@@ -11,12 +11,12 @@ MakerEye is Prusa-first (Prusa Connect uploads, PrusaLink-triggered
 timelapses) but its core camera/streaming functionality is not tied to
 Prusa specifically.
 
-**Current status: Milestones 0-4 (repository foundation, camera
-streaming, Prusa Connect uploads, MQTT/Home Assistant, lighting) are
-implemented. Later milestones (timelapses, web UI, motion detection,
-AI monitoring) are documented in `ROADMAP.md` but not yet
-implemented.** See `docs/NEXT_SESSION.md` for exactly what has and
-hasn't been validated.
+**Current status: Milestones 0-5 (repository foundation, camera
+streaming, Prusa Connect uploads, MQTT/Home Assistant, lighting,
+manual timelapse) are implemented. Later milestones (PrusaLink
+auto-timelapse, web UI, motion detection, AI monitoring) are documented
+in `ROADMAP.md` but not yet implemented.** See `docs/NEXT_SESSION.md`
+for exactly what has and hasn't been validated.
 
 ## What's implemented
 
@@ -30,8 +30,12 @@ hasn't been validated.
   controls appear in HA automatically via MQTT discovery.
 - Optional lighting control (first backend: Wyze Cam v3 Spotlight Kit
   over USB serial), from the CLI and as dimmable HA light entities.
+- Manual timelapses: one capture job at a time from the shared camera
+  pipeline, durable across restarts, rendered to MP4 with ffmpeg,
+  controlled from the CLI or Home Assistant.
 - A small CLI (`run`, `version`, `validate-config`, `status`, `stream
-  start/stop/restart`, `prusa start/stop/restart`, `light`).
+  start/stop/restart`, `prusa start/stop/restart`, `light`,
+  `timelapse`).
 - systemd integration (`makereye.service`) and an install script for
   fresh Raspberry Pi OS Lite installs.
 
@@ -301,6 +305,8 @@ duplicate. The discovered device has:
   `prusa_connect.enabled` is true),
 - a dimmable **light entity** per configured light (when
   `lighting.enabled` is true),
+- timelapse **start/stop/render buttons**, **interval/fps number
+  entities**, and job sensors (when `timelapse.enabled` is true),
 - sensors: stream phase, Prusa upload/failure counts,
 - availability wiring, so everything shows "unavailable" if the daemon
   or the Pi goes down.
@@ -410,6 +416,55 @@ protocol documentation:
 ./scripts/spotlight_ctl.sh 200          # 0 (off) - 255 (max)
 DEVICE=/dev/ttyUSB1 ./scripts/spotlight_ctl.sh 0
 ```
+
+## Timelapse
+
+One capture job at a time, pulling JPEG frames from the same go2rtc
+pipeline as everything else (no second camera claim), stored durably
+under per-job directories and rendered to MP4 with ffmpeg. Enable it in
+`config.yaml` (`timelapse.enabled: true`; see
+`config/config.example.yaml` for every knob), then:
+
+```sh
+makereye timelapse start -name "benchy" -interval 15 -fps 30
+makereye timelapse status
+makereye timelapse stop            # auto-renders by default
+makereye timelapse list
+makereye timelapse render <job-id> # retry/re-render any job
+```
+
+With MQTT enabled the same controls appear in Home Assistant:
+start/stop/render buttons, number entities for the capture interval and
+playback fps (consumed by the next start), and sensors for phase, job
+name, frame count, capture failures, last result, and last output path.
+
+Behavior worth knowing:
+
+- **Restarts don't kill captures.** A job that was capturing when the
+  daemon stopped (update, reboot, power loss) resumes automatically
+  (`resume_interrupted: true`, the default) or is marked `interrupted`
+  and can still be rendered from the frames it got.
+- **Frames are never deleted because something failed.** Failed renders
+  keep every frame and can be retried; `retain_frames: false` only
+  removes frames after a *validated* successful render.
+- **Storage guardrails, not retention.** Capture stops cleanly (frames
+  preserved, actionable error) if free space drops below
+  `minimum_free_space_mb`. MakerEye never deletes old jobs on its own —
+  clean up explicitly, or point `output_dir` at bigger storage.
+- **Storage estimate**: a 1080p JPEG frame from the stream is roughly
+  300-600 KB, so a 30-second interval running 24 hours is ~2,880 frames
+  ≈ 1-2 GB plus the rendered MP4. For long-running timelapses, prefer
+  durable storage: point `output_dir` at a mounted NAS share or USB
+  drive to spare the SD card the write wear.
+- **Getting videos off the device** is `scp`/network-share territory for
+  now; the web UI milestone adds browse/download, and upload automation
+  is sketched in `ROADMAP.md` "Candidate work".
+- **Lighting during capture**: set `timelapse.light` (and
+  `light_brightness`) to pin a configured light while capturing and
+  restore it after — or compose the light entities with the timelapse
+  buttons in an HA automation, e.g. a script that turns the spotlight
+  on, waits a second, and presses "Start timelapse", with the reverse
+  on stop.
 
 ## License
 

@@ -76,6 +76,28 @@ func TestValidateCatchesBadValues(t *testing.T) {
 			c.Lighting.Enabled = true
 			c.Lighting.Lights = []LightConfig{{Name: "spot", Type: LightTypeWyzeSpotlight, StartupBrightness: 300}}
 		}, "startup_brightness"},
+		{"timelapse bad interval", func(c *Config) {
+			c.Timelapse.Enabled = true
+			c.Timelapse.DefaultIntervalSeconds = 0
+		}, "timelapse.default_interval_seconds"},
+		{"timelapse bad fps", func(c *Config) {
+			c.Timelapse.Enabled = true
+			c.Timelapse.DefaultPlaybackFPS = 500
+		}, "timelapse.default_playback_fps"},
+		{"timelapse bad encoder", func(c *Config) {
+			c.Timelapse.Enabled = true
+			c.Timelapse.Encoder = "divx"
+		}, "timelapse.encoder"},
+		{"timelapse light without lighting", func(c *Config) {
+			c.Timelapse.Enabled = true
+			c.Timelapse.Light = "spot"
+		}, "lighting is disabled"},
+		{"timelapse light unknown name", func(c *Config) {
+			c.Lighting.Enabled = true
+			c.Lighting.Lights = []LightConfig{{Name: "shelf", Type: LightTypeWyzeSpotlight}}
+			c.Timelapse.Enabled = true
+			c.Timelapse.Light = "spot"
+		}, "does not match any configured"},
 		{"bad log level", func(c *Config) { c.System.LogLevel = "loud" }, "system.log_level"},
 	}
 

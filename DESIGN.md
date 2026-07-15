@@ -201,6 +201,102 @@ entities.
   purpose. Turning everything off on daemon shutdown would flap the
   lighting on every service restart and update.
 
+## Snapshot source
+
+`internal/snapshot.Source` is the narrow abstraction over "give me one
+JPEG frame now": it fetches from go2rtc's `/api/frame.jpeg` (loopback
+mapping via `go2rtc.ClientHostPort`, Basic Auth when `go2rtc.auth` is
+set), enforces a caller-supplied timeout, and validates the response is
+a non-empty, structurally decodable JPEG (SOI marker +
+`jpeg.DecodeConfig`) before returning bytes plus capture-time metadata.
+Both the Prusa Connect uploader and timelapse consume it, so neither
+depends on go2rtc HTTP details directly. It is deliberately not a
+plugin framework — its one job is to be the seam where coordinated
+full-resolution still capture can later slot in without touching job
+logic.
+
+## Timelapse
+
+`internal/timelapse.Manager` runs at most one active capture job, with
+durable on-disk state and rendering as a separate, explicitly-requested
+or auto-triggered step. Advisory like the other subsystems: nothing
+here can take down streaming.
+
+**Job model.** A job = ID (UTC timestamp + random suffix), user-visible
+name, capture interval, playback fps, timestamps, phase, frame/failure
+counters, last error, and paths. Phases: `capturing`, `stopped`,
+`rendering`, `complete`, `capture_failed`, `render_failed`,
+`interrupted`. A failed individual capture is recorded and retried next
+tick; **`capture_failed` is entered only after 10 consecutive
+failures** (bounded, like the go2rtc supervisor's restart policy) or
+when the free-space threshold is hit — in both cases capture stops
+cleanly and every captured frame is preserved.
+
+**Capture loop.** One goroutine per active job reading a monotonic
+ticker (injectable for deterministic tests), so capture times don't
+drift by the duration of each snapshot request and overlapping ticks
+are structurally impossible (a slow capture simply drops missed ticks).
+The first frame is captured synchronously at job start, which doubles
+as the "is the stream actually up" check — start fails cleanly if it
+isn't. Free space is verified before every frame write.
+
+**Persistence and recovery.** Layout under
+`<output_dir>/<job-id>-<sanitized-name>/`: `job.json` (manifest),
+`frames/00000001.jpg`..., and the rendered `<name>.mp4`. Manifests are
+written atomically (temp file + rename + fsync); frames are written
+atomically but not fsynced — losing the final frame on power cut is
+acceptable, per-frame fsync grinds SD cards. The manifest is persisted
+on every phase transition and every 10th frame; on load the frame count
+is reconciled by counting files on disk, so the manifest being a few
+frames stale is harmless. At daemon startup all manifests are scanned:
+finished jobs are indexed, and jobs that were `capturing` are either
+resumed (`timelapse.resume_interrupted`, default true — frame numbering
+just continues, so `update.sh` restarts don't kill long captures) or
+marked `interrupted`, from which they can still be rendered. Frames are
+never deleted because capture stopped unexpectedly or a render failed.
+No wall-clock trust: the Pi has no RTC, so timestamps are informational
+only, never used for scheduling.
+
+**Storage guardrails.** `output_dir` defaults to
+`<state_dir>/timelapses` and may point anywhere — including a mounted
+NAS share, which eliminates SD wear during capture. A configurable
+minimum-free-space threshold is enforced at job start, before each
+frame, and before each render; hitting it stops capture cleanly with an
+actionable error. No automatic deletion of old jobs: retention that
+silently removes user data is riskier than requiring explicit cleanup.
+
+**Rendering.** ffmpeg (never encoding in Go), invoked through an
+injectable command runner (tests use a fake; the real one runs ffmpeg
+via `nice -n 19`). Defaults: H.264 MP4, `libx264 -preset ultrafast
+-pix_fmt yuv420p`, playback fps from the job. `timelapse.encoder` can
+select the Pi's hardware encoder (`h264_v4l2m2m`) — kept opt-in until
+validated, because the hardware encoder may contend with the live
+stream's own encoding. Renders are serialized (one at a time,
+device-wide), bounded by a watchdog timeout
+(`render_timeout_minutes`), and a job only becomes `complete` when
+ffmpeg exits zero **and** the output file exists non-empty. Failure →
+`render_failed`, frames intact, retry allowed via `timelapse render
+<job-id>`. `retain_frames` (default true) may delete frames after a
+*validated* successful render only. Rendering never runs concurrently
+with capturing the same job.
+
+**Lighting hold.** A job may optionally name a configured light and a
+brightness to hold during capture; the manager records the light's
+prior level at start and restores it when capture finalizes (wired
+through daemon hooks to `internal/lighting`, no package dependency).
+HA automations composing the Milestone 4 light entities remain the
+more flexible alternative.
+
+**Surfaces.** CLI `makereye timelapse start/stop/status/list/render`
+over new control-socket commands; `makereye status` gains a concise
+timelapse line. MQTT/HA (gated on `timelapse.enabled`): start/stop/
+render-last buttons, `number` entities for per-job capture interval and
+playback fps (defaults from config, values held by the bridge and
+published retained), and sensors for phase/name/frames/failures/last
+render outcome via the status JSON. State publishes on phase
+transitions and the periodic refresh — deliberately not per frame or
+per ffmpeg progress line, to keep MQTT traffic sane.
+
 ## Configuration model
 
 - Format: YAML, single file, default path `/etc/makereye/config.yaml`,

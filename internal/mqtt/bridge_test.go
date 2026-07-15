@@ -138,6 +138,7 @@ func testConfig() *config.Config {
 	cfg.Lighting.Lights = []config.LightConfig{
 		{Name: "spotlight", Type: config.LightTypeWyzeSpotlight},
 	}
+	cfg.Timelapse.Enabled = true
 	return cfg
 }
 
@@ -209,6 +210,19 @@ func startTestBridge(t *testing.T, cfg *config.Config) (*Bridge, *fakeClient, *c
 			out[k] = v
 		}
 		return out
+	}
+
+	hooks.TimelapseStart = func(_ context.Context, name string, interval, fps int) error {
+		c.record(fmt.Sprintf("timelapse-start-%d-%d", interval, fps))(nil)
+		return nil
+	}
+	hooks.TimelapseStop = func(_ context.Context) error {
+		c.record("timelapse-stop")(nil)
+		return nil
+	}
+	hooks.TimelapseRenderLast = func(_ context.Context) error {
+		c.record("timelapse-render-last")(nil)
+		return nil
 	}
 
 	b := NewBridge(cfg, testLogger(), hooks)
@@ -422,6 +436,83 @@ func TestLightEntitiesOmittedWhenDisabled(t *testing.T) {
 	}
 	if h := fc.handlerFor("makereye/bench_printer_1/light/spotlight/set"); h != nil {
 		t.Error("light command handler should not be subscribed when lighting is disabled")
+	}
+}
+
+func TestTimelapseEntitiesAndCommands(t *testing.T) {
+	_, fc, c := startTestBridge(t, testConfig())
+
+	// Discovery: buttons, numbers, sensors.
+	for _, topic := range []string{
+		"homeassistant/button/makereye_bench_printer_1/timelapse_start/config",
+		"homeassistant/button/makereye_bench_printer_1/timelapse_stop/config",
+		"homeassistant/button/makereye_bench_printer_1/timelapse_render_last/config",
+		"homeassistant/number/makereye_bench_printer_1/timelapse_interval/config",
+		"homeassistant/number/makereye_bench_printer_1/timelapse_fps/config",
+		"homeassistant/sensor/makereye_bench_printer_1/timelapse_phase/config",
+		"homeassistant/sensor/makereye_bench_printer_1/timelapse_frames/config",
+		"homeassistant/sensor/makereye_bench_printer_1/timelapse_last_result/config",
+	} {
+		if recs := fc.publishedTo(topic); len(recs) == 0 {
+			t.Errorf("missing discovery publish on %s", topic)
+		}
+	}
+
+	// Numbers hold per-job parameters; the start button consumes them.
+	intervalH := fc.handlerFor("makereye/bench_printer_1/timelapse/interval/set")
+	fpsH := fc.handlerFor("makereye/bench_printer_1/timelapse/fps/set")
+	startH := fc.handlerFor("makereye/bench_printer_1/timelapse/start")
+	if intervalH == nil || fpsH == nil || startH == nil {
+		t.Fatal("timelapse command handlers not subscribed")
+	}
+	intervalH(fc, fakeMessage{payload: []byte("15")})
+	fpsH(fc, fakeMessage{payload: []byte("60")})
+	startH(fc, fakeMessage{payload: []byte("PRESS")})
+
+	stopH := fc.handlerFor("makereye/bench_printer_1/timelapse/stop")
+	renderH := fc.handlerFor("makereye/bench_printer_1/timelapse/render_last")
+	stopH(fc, fakeMessage{payload: []byte("PRESS")})
+	renderH(fc, fakeMessage{payload: []byte("PRESS")})
+
+	got := strings.Join(c.list(), ",")
+	want := "timelapse-start-15-60,timelapse-stop,timelapse-render-last"
+	if got != want {
+		t.Errorf("timelapse hook calls = %s, want %s", got, want)
+	}
+
+	// Number state topics republished retained.
+	intervals := fc.publishedTo("makereye/bench_printer_1/timelapse/interval")
+	if len(intervals) == 0 {
+		t.Fatal("expected interval state publish")
+	}
+	last := intervals[len(intervals)-1]
+	if string(last.payload) != "15" || !last.retained {
+		t.Errorf("interval state = %q retained=%v, want 15/true", last.payload, last.retained)
+	}
+}
+
+func TestTimelapseNumberRejectsOutOfRange(t *testing.T) {
+	b, fc, _ := startTestBridge(t, testConfig())
+	h := fc.handlerFor("makereye/bench_printer_1/timelapse/interval/set")
+	h(fc, fakeMessage{payload: []byte("99999")})
+	h(fc, fakeMessage{payload: []byte("abc")})
+	b.mu.Lock()
+	got := b.tlInterval
+	b.mu.Unlock()
+	if got != 30 { // config default untouched
+		t.Errorf("interval after invalid payloads = %d, want 30", got)
+	}
+}
+
+func TestTimelapseEntitiesOmittedWhenDisabled(t *testing.T) {
+	cfg := testConfig()
+	cfg.Timelapse.Enabled = false
+	_, fc, _ := startTestBridge(t, cfg)
+	if recs := fc.publishedTo("homeassistant/button/makereye_bench_printer_1/timelapse_start/config"); len(recs) != 0 {
+		t.Error("timelapse discovery should not be published when disabled")
+	}
+	if h := fc.handlerFor("makereye/bench_printer_1/timelapse/start"); h != nil {
+		t.Error("timelapse handlers should not be subscribed when disabled")
 	}
 }
 

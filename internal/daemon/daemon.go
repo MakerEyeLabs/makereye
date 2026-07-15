@@ -21,6 +21,8 @@ import (
 	"github.com/MakerEyeLabs/makereye/internal/lighting"
 	"github.com/MakerEyeLabs/makereye/internal/mqtt"
 	"github.com/MakerEyeLabs/makereye/internal/prusaconnect"
+	"github.com/MakerEyeLabs/makereye/internal/snapshot"
+	"github.com/MakerEyeLabs/makereye/internal/timelapse"
 )
 
 // Daemon is the running MakerEye process: it supervises go2rtc, the
@@ -32,6 +34,7 @@ type Daemon struct {
 	supervisor *go2rtc.Supervisor
 	uploader   *prusaconnect.Uploader
 	lights     *lighting.Manager
+	lapse      *timelapse.Manager
 	bridge     *mqtt.Bridge
 }
 
@@ -40,13 +43,18 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	source := snapshot.NewGo2rtcSource(cfg)
 	d := &Daemon{
 		cfg:        cfg,
 		logger:     logger,
 		supervisor: go2rtc.NewSupervisor(cfg, logger),
-		uploader:   prusaconnect.NewUploader(cfg, logger),
+		uploader:   prusaconnect.NewUploader(cfg, source, logger),
 		lights:     lighting.NewManager(cfg, logger),
 	}
+	d.lapse = timelapse.NewManager(cfg, source, timelapse.LightHooks{
+		States: d.lights.States,
+		Set:    d.lights.Set,
+	}, logger)
 	d.bridge = mqtt.NewBridge(cfg, logger, mqtt.Hooks{
 		StreamStart:   d.supervisor.Start,
 		StreamStop:    d.supervisor.Stop,
@@ -58,8 +66,27 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 		LightOff:      func(_ context.Context, name string) error { return d.lights.Off(name) },
 		LightSet:      func(_ context.Context, name string, level int) error { return d.lights.Set(name, level) },
 		LightStates:   d.lights.States,
-		Status:        d.mqttStatus,
+		TimelapseStart: func(_ context.Context, name string, interval, fps int) error {
+			_, err := d.lapse.StartJob(timelapse.JobParams{
+				Name: name, IntervalSeconds: interval, PlaybackFPS: fps,
+			})
+			return err
+		},
+		TimelapseStop: func(_ context.Context) error {
+			_, err := d.lapse.StopJob()
+			return err
+		},
+		TimelapseRenderLast: func(_ context.Context) error {
+			last, ok := d.lapse.LastJob()
+			if !ok {
+				return fmt.Errorf("no timelapse jobs exist")
+			}
+			return d.lapse.Render(last.ID)
+		},
+		Status: d.mqttStatus,
 	})
+	// Push MQTT state promptly on timelapse phase transitions.
+	d.lapse.SetOnChange(d.bridge.PublishState)
 	return d
 }
 
@@ -67,13 +94,34 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 func (d *Daemon) mqttStatus() mqtt.Status {
 	st := d.supervisor.Status()
 	pst := d.uploader.Status()
-	return mqtt.Status{
+	s := mqtt.Status{
 		StreamPhase:    string(st.Phase),
 		StreamRestarts: st.RestartCount,
 		PrusaPhase:     string(pst.Phase),
 		PrusaUploads:   pst.UploadCount,
 		PrusaFailures:  pst.FailureCount,
+		TimelapsePhase: "idle",
 	}
+	if d.cfg.Timelapse.Enabled {
+		job, ok := d.lapse.Active()
+		if !ok {
+			job, ok = d.lapse.LastJob()
+		}
+		if ok {
+			s.TimelapsePhase = string(job.Phase)
+			s.TimelapseJob = job.Name
+			s.TimelapseFrames = job.FrameCount
+			s.TimelapseFailures = job.FailureCount
+			switch {
+			case job.Phase == timelapse.PhaseComplete:
+				s.TimelapseLastResult = "complete"
+				s.TimelapseOutput = job.OutputPath()
+			case job.LastError != "":
+				s.TimelapseLastResult = job.LastError
+			}
+		}
+	}
+	return s
 }
 
 // SocketPath returns the control socket path for cfg's configured run
@@ -106,6 +154,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 		if err := d.lights.Start(ctx); err != nil {
 			// Advisory subsystem: log and continue.
 			d.logger.Error("starting lighting", "error", err)
+		}
+	}
+
+	if d.cfg.Timelapse.Enabled {
+		if err := d.lapse.Start(ctx); err != nil {
+			// Advisory subsystem: log and continue.
+			d.logger.Error("starting timelapse", "error", err)
 		}
 	}
 
@@ -146,6 +201,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	if err := d.bridge.Stop(stopCtx); err != nil {
 		d.logger.Error("error stopping mqtt bridge", "error", err)
+	}
+	if err := d.lapse.Stop(stopCtx); err != nil {
+		d.logger.Error("error stopping timelapse", "error", err)
 	}
 	if err := d.lights.Stop(stopCtx); err != nil {
 		d.logger.Error("error stopping lighting", "error", err)
@@ -195,6 +253,9 @@ func (d *Daemon) handle(ctx context.Context, req ipc.Request) ipc.Response {
 		return ipc.Response{OK: true, Message: "prusa connect uploader restarted"}
 	case ipc.CmdLightSet:
 		return d.handleLightSet(req)
+	case ipc.CmdTimelapseStart, ipc.CmdTimelapseStop, ipc.CmdTimelapseStatus,
+		ipc.CmdTimelapseList, ipc.CmdTimelapseRender:
+		return d.handleTimelapse(req)
 	default:
 		return ipc.Response{OK: false, Error: fmt.Sprintf("unknown command %q", req.Command)}
 	}
@@ -222,6 +283,88 @@ func (d *Daemon) handleLightSet(req ipc.Request) ipc.Response {
 		return ipc.Response{OK: false, Error: err.Error()}
 	}
 	return ipc.Response{OK: true, Message: fmt.Sprintf("light %q set to %d", req.Light, d.lights.States()[req.Light])}
+}
+
+func (d *Daemon) handleTimelapse(req ipc.Request) ipc.Response {
+	if !d.cfg.Timelapse.Enabled {
+		return ipc.Response{OK: false, Error: "timelapse.enabled is false in config"}
+	}
+
+	switch req.Command {
+	case ipc.CmdTimelapseStart:
+		job, err := d.lapse.StartJob(timelapse.JobParams{
+			Name:            req.TimelapseName,
+			IntervalSeconds: req.TimelapseInterval,
+			PlaybackFPS:     req.TimelapseFPS,
+			Light:           req.TimelapseLight,
+			LightBrightness: req.TimelapseLightVal,
+		})
+		if err != nil {
+			return ipc.Response{OK: false, Error: err.Error()}
+		}
+		return ipc.Response{OK: true, Message: fmt.Sprintf(
+			"timelapse started: id=%s name=%q interval=%ds fps=%d",
+			job.ID, job.Name, job.IntervalSeconds, job.PlaybackFPS)}
+
+	case ipc.CmdTimelapseStop:
+		job, err := d.lapse.StopJob()
+		if err != nil {
+			return ipc.Response{OK: false, Error: err.Error()}
+		}
+		if job.ID == "" {
+			return ipc.Response{OK: true, Message: "no timelapse job to stop"}
+		}
+		msg := fmt.Sprintf("timelapse stopped: id=%s frames=%d", job.ID, job.FrameCount)
+		if d.cfg.Timelapse.AutoRender && job.FrameCount > 0 {
+			msg += " (auto-render started)"
+		}
+		return ipc.Response{OK: true, Message: msg}
+
+	case ipc.CmdTimelapseStatus:
+		if job, ok := d.lapse.Active(); ok {
+			return ipc.Response{OK: true, Status: string(job.Phase),
+				Message: formatJob(job)}
+		}
+		if job, ok := d.lapse.LastJob(); ok {
+			return ipc.Response{OK: true, Status: string(job.Phase),
+				Message: "no active job; most recent:\n" + formatJob(job)}
+		}
+		return ipc.Response{OK: true, Status: "idle", Message: "no timelapse jobs"}
+
+	case ipc.CmdTimelapseList:
+		jobs := d.lapse.List()
+		if len(jobs) == 0 {
+			return ipc.Response{OK: true, Message: "no timelapse jobs"}
+		}
+		var b strings.Builder
+		for _, j := range jobs {
+			fmt.Fprintln(&b, formatJob(j))
+		}
+		return ipc.Response{OK: true, Message: strings.TrimRight(b.String(), "\n")}
+
+	case ipc.CmdTimelapseRender:
+		if req.TimelapseJobID == "" {
+			return ipc.Response{OK: false, Error: "timelapse render requires a job id (see: makereye timelapse list)"}
+		}
+		if err := d.lapse.Render(req.TimelapseJobID); err != nil {
+			return ipc.Response{OK: false, Error: err.Error()}
+		}
+		return ipc.Response{OK: true, Message: "render started for job " + req.TimelapseJobID}
+	}
+	return ipc.Response{OK: false, Error: "unhandled timelapse command"}
+}
+
+// formatJob renders one job as a single status line.
+func formatJob(j timelapse.Job) string {
+	line := fmt.Sprintf("%s  %-14s name=%q frames=%d failures=%d interval=%ds fps=%d",
+		j.ID, j.Phase, j.Name, j.FrameCount, j.FailureCount, j.IntervalSeconds, j.PlaybackFPS)
+	if j.Phase == timelapse.PhaseComplete && j.OutputPath() != "" {
+		line += " output=" + j.OutputPath()
+	}
+	if j.LastError != "" {
+		line += " last_error=" + j.LastError
+	}
+	return line
 }
 
 func (d *Daemon) handleStatus() ipc.Response {
@@ -260,6 +403,20 @@ func (d *Daemon) handleStatus() ipc.Response {
 		}
 	} else {
 		msg += "\nlighting: disabled"
+	}
+
+	if d.cfg.Timelapse.Enabled {
+		if job, ok := d.lapse.Active(); ok {
+			msg += fmt.Sprintf("\ntimelapse: %s job=%s name=%q frames=%d failures=%d",
+				job.Phase, job.ID, job.Name, job.FrameCount, job.FailureCount)
+		} else if job, ok := d.lapse.LastJob(); ok {
+			msg += fmt.Sprintf("\ntimelapse: idle (last: %s %s frames=%d)",
+				job.ID, job.Phase, job.FrameCount)
+		} else {
+			msg += "\ntimelapse: idle"
+		}
+	} else {
+		msg += "\ntimelapse: disabled"
 	}
 
 	return ipc.Response{OK: true, Status: string(st.Phase), Message: msg}

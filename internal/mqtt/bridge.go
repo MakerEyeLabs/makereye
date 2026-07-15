@@ -37,13 +37,22 @@ const stateRefreshInterval = 30 * time.Second
 
 // Status is the state snapshot the bridge publishes. The daemon
 // supplies it via Hooks.Status so this package doesn't depend on the
-// go2rtc/prusaconnect packages directly.
+// subsystem packages directly.
 type Status struct {
 	StreamPhase    string `json:"stream_phase"`
 	StreamRestarts int    `json:"stream_restarts"`
 	PrusaPhase     string `json:"prusa_phase,omitempty"`
 	PrusaUploads   int    `json:"prusa_uploads"`
 	PrusaFailures  int    `json:"prusa_failures"`
+
+	// Timelapse state: the active job when one is capturing, otherwise
+	// the most recent job. Phase is "idle" when no jobs exist.
+	TimelapsePhase      string `json:"timelapse_phase"`
+	TimelapseJob        string `json:"timelapse_job"`
+	TimelapseFrames     int    `json:"timelapse_frames"`
+	TimelapseFailures   int    `json:"timelapse_failures"`
+	TimelapseLastResult string `json:"timelapse_last_result"`
+	TimelapseOutput     string `json:"timelapse_output"`
 }
 
 // Hooks are the daemon operations the bridge dispatches MQTT commands
@@ -62,7 +71,14 @@ type Hooks struct {
 	LightOff      func(ctx context.Context, name string) error
 	LightSet      func(ctx context.Context, name string, level int) error
 	LightStates   func() map[string]int
-	Status        func() Status
+
+	// Timelapse hooks. Start receives the per-job parameters currently
+	// set through the HA number entities (0 = use config default).
+	TimelapseStart      func(ctx context.Context, name string, intervalSec, fps int) error
+	TimelapseStop       func(ctx context.Context) error
+	TimelapseRenderLast func(ctx context.Context) error
+
+	Status func() Status
 }
 
 // Bridge owns the MQTT client and the Home Assistant integration for
@@ -81,6 +97,12 @@ type Bridge struct {
 	started bool
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
+
+	// Per-job timelapse parameters, settable through the HA number
+	// entities and consumed by the start button. Initialized from the
+	// config defaults; published retained so HA shows current values.
+	tlInterval int
+	tlFPS      int
 }
 
 // NewBridge creates a Bridge. It does not connect; call Start.
@@ -89,10 +111,21 @@ func NewBridge(cfg *config.Config, logger *slog.Logger, hooks Hooks) *Bridge {
 		logger = slog.Default()
 	}
 	return &Bridge{
-		cfg:       cfg,
-		logger:    logger,
-		hooks:     hooks,
-		newClient: paho.NewClient,
+		cfg:        cfg,
+		logger:     logger,
+		hooks:      hooks,
+		newClient:  paho.NewClient,
+		tlInterval: cfg.Timelapse.DefaultIntervalSeconds,
+		tlFPS:      cfg.Timelapse.DefaultPlaybackFPS,
+	}
+}
+
+// PublishState pushes current state immediately; safe to call anytime
+// (no-op when not connected). Subsystems use this to make phase
+// transitions visible in HA without waiting for the periodic refresh.
+func (b *Bridge) PublishState() {
+	if b.Connected() {
+		b.publishState()
 	}
 }
 
@@ -253,6 +286,13 @@ func (b *Bridge) onConnect(client paho.Client) {
 			client.Subscribe(lightBase+"/brightness/set", 1, b.lightBrightnessHandler(name))
 		}
 	}
+	if b.timelapseEnabled() {
+		client.Subscribe(base+"/timelapse/start", 1, b.timelapseStartHandler())
+		client.Subscribe(base+"/timelapse/stop", 1, b.pressHandler("timelapse stop", b.hooks.TimelapseStop))
+		client.Subscribe(base+"/timelapse/render_last", 1, b.pressHandler("timelapse render", b.hooks.TimelapseRenderLast))
+		client.Subscribe(base+"/timelapse/interval/set", 1, b.numberHandler("timelapse interval", 1, 3600, &b.tlInterval))
+		client.Subscribe(base+"/timelapse/fps/set", 1, b.numberHandler("timelapse fps", 1, 120, &b.tlFPS))
+	}
 
 	// Home Assistant publishes "online" to <discovery_prefix>/status
 	// (its birth message) when it starts. Republishing discovery and
@@ -279,6 +319,44 @@ func (b *Bridge) prusaEnabled() bool {
 
 func (b *Bridge) lightingEnabled() bool {
 	return b.cfg.Lighting.Enabled && b.hooks.LightSet != nil
+}
+
+func (b *Bridge) timelapseEnabled() bool {
+	return b.cfg.Timelapse.Enabled && b.hooks.TimelapseStart != nil
+}
+
+// timelapseStartHandler starts a job using the parameter values
+// currently held by the number entities.
+func (b *Bridge) timelapseStartHandler() paho.MessageHandler {
+	return func(_ paho.Client, _ paho.Message) {
+		b.mu.Lock()
+		interval, fps := b.tlInterval, b.tlFPS
+		b.mu.Unlock()
+
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+		if err := b.hooks.TimelapseStart(ctx, "", interval, fps); err != nil {
+			b.logger.Warn("mqtt timelapse start failed", "error", err)
+		}
+		b.publishState()
+	}
+}
+
+// numberHandler stores a HA number-entity command into target (bounded)
+// and republishes state as the acknowledgement.
+func (b *Bridge) numberHandler(name string, min, max int, target *int) paho.MessageHandler {
+	return func(_ paho.Client, msg paho.Message) {
+		v, err := strconv.Atoi(strings.TrimSpace(string(msg.Payload())))
+		if err != nil || v < min || v > max {
+			b.logger.Warn("mqtt: invalid number payload", "entity", name,
+				"payload", string(msg.Payload()), "min", min, "max", max)
+			return
+		}
+		b.mu.Lock()
+		*target = v
+		b.mu.Unlock()
+		b.publishState()
+	}
 }
 
 // lightSwitchHandler handles HA's ON/OFF light command.
@@ -393,6 +471,15 @@ func (b *Bridge) publishState() {
 			client.Publish(lightBase+"/brightness", 0, false, strconv.Itoa(level))
 		}
 	}
+	if b.timelapseEnabled() {
+		b.mu.Lock()
+		interval, fps := b.tlInterval, b.tlFPS
+		b.mu.Unlock()
+		// Retained so HA shows the current parameter values across its
+		// own restarts.
+		client.Publish(base+"/timelapse/interval", 0, true, strconv.Itoa(interval))
+		client.Publish(base+"/timelapse/fps", 0, true, strconv.Itoa(fps))
+	}
 }
 
 // onOff maps a subsystem phase to a HA switch state. "restarting"
@@ -495,6 +582,59 @@ func (b *Bridge) discoveryConfigs() map[string][]byte {
 					"brightness_state_topic":   lightBase + "/brightness",
 					"brightness_command_topic": lightBase + "/brightness/set",
 					"brightness_scale":         255,
+				})
+		}
+	}
+	if b.timelapseEnabled() {
+		tl := base + "/timelapse"
+		dp := b.cfg.MQTT.DiscoveryPrefix
+		configs[fmt.Sprintf("%s/button/%s/timelapse_start/config", dp, node)] = merge(
+			common("Start timelapse", "timelapse_start"), map[string]any{
+				"command_topic": tl + "/start",
+				"payload_press": "PRESS",
+			})
+		configs[fmt.Sprintf("%s/button/%s/timelapse_stop/config", dp, node)] = merge(
+			common("Stop timelapse", "timelapse_stop"), map[string]any{
+				"command_topic": tl + "/stop",
+				"payload_press": "PRESS",
+			})
+		configs[fmt.Sprintf("%s/button/%s/timelapse_render_last/config", dp, node)] = merge(
+			common("Render last timelapse", "timelapse_render_last"), map[string]any{
+				"command_topic": tl + "/render_last",
+				"payload_press": "PRESS",
+			})
+		configs[fmt.Sprintf("%s/number/%s/timelapse_interval/config", dp, node)] = merge(
+			common("Timelapse capture interval", "timelapse_interval"), map[string]any{
+				"state_topic":         tl + "/interval",
+				"command_topic":       tl + "/interval/set",
+				"min":                 1,
+				"max":                 3600,
+				"step":                1,
+				"unit_of_measurement": "s",
+				"mode":                "box",
+			})
+		configs[fmt.Sprintf("%s/number/%s/timelapse_fps/config", dp, node)] = merge(
+			common("Timelapse playback fps", "timelapse_fps"), map[string]any{
+				"state_topic":   tl + "/fps",
+				"command_topic": tl + "/fps/set",
+				"min":           1,
+				"max":           120,
+				"step":          1,
+				"mode":          "box",
+			})
+		sensors := map[string]string{
+			"timelapse_phase":       "Timelapse phase",
+			"timelapse_job":         "Timelapse job",
+			"timelapse_frames":      "Timelapse frames",
+			"timelapse_failures":    "Timelapse capture failures",
+			"timelapse_last_result": "Timelapse last result",
+			"timelapse_output":      "Timelapse last output",
+		}
+		for key, name := range sensors {
+			configs[fmt.Sprintf("%s/sensor/%s/%s/config", dp, node, key)] = merge(
+				common(name, key), map[string]any{
+					"state_topic":    b.statusTopic(),
+					"value_template": fmt.Sprintf("{{ value_json.%s }}", key),
 				})
 		}
 	}

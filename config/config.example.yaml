@@ -164,15 +164,61 @@ lighting:
   #     # hardware is in a known state. 0 = off.
   #     startup_brightness: 0
 
+# Optional timelapse capture: one job at a time, frames pulled from the
+# same go2rtc pipeline as everything else, rendered to MP4 with ffmpeg.
+# Enabling this makes `makereye timelapse ...` and the Home Assistant
+# timelapse controls available; it does not start a job.
+timelapse:
+  enabled: false
+
+  # Where job directories (frames, manifest, rendered video) live.
+  # Empty means <system.state_dir>/timelapses. Point this at a mounted
+  # NAS share to avoid SD-card wear entirely.
+  output_dir: ""
+
+  # Defaults for new jobs; both can be overridden per job from the CLI
+  # or the Home Assistant number entities.
+  default_interval_seconds: 30
+  default_playback_fps: 30
+
+  # Render automatically when a job is stopped. Manual rendering
+  # (makereye timelapse render <job-id>) always works.
+  auto_render: true
+
+  # Keep source frames after a successful render. Frames are never
+  # deleted on failure regardless of this setting.
+  retain_frames: true
+
+  # Resume a job that was capturing when the daemon stopped (restart,
+  # update, power loss) instead of only marking it interrupted.
+  resume_interrupted: true
+
+  # Stop capture (and refuse renders) when the output filesystem has
+  # less than this much space left.
+  minimum_free_space_mb: 1024
+
+  # Per-frame capture timeout.
+  snapshot_timeout_seconds: 10
+
+  # ffmpeg video encoder: libx264 (safe default; slow on a Pi Zero) or
+  # h264_v4l2m2m (Pi hardware encoder; may contend with the live
+  # stream's encoding -- validate before relying on it).
+  encoder: libx264
+
+  # Watchdog for a single render.
+  render_timeout_minutes: 60
+
+  # Optionally hold a configured light (lighting.lights name) at a
+  # brightness while capturing; its previous level is restored when
+  # capture stops. Empty disables the hold.
+  light: ""
+  light_brightness: 255
+
 # --------------------------------------------------------------------
 # The sections below are placeholders for future milestones. They are
 # accepted and lightly validated but have NO runtime effect yet --
 # setting enabled: true does nothing in this version of MakerEye.
 # --------------------------------------------------------------------
-
-# Milestone 5/6: manual and PrusaLink-triggered timelapses.
-timelapse:
-  enabled: false
 
 # Milestone 6: PrusaLink automatic timelapse triggers.
 prusalink:

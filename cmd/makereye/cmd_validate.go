@@ -49,5 +49,12 @@ func cmdValidateConfig(args []string) int {
 		lightingState = "enabled: " + strings.Join(names, ", ")
 	}
 	fmt.Printf("  lighting: %s\n", lightingState)
+	tlState := "disabled"
+	if cfg.Timelapse.Enabled {
+		tlState = fmt.Sprintf("enabled (dir=%s, every %ds, %dfps, auto_render=%v)",
+			cfg.TimelapseOutputDir(), cfg.Timelapse.DefaultIntervalSeconds,
+			cfg.Timelapse.DefaultPlaybackFPS, cfg.Timelapse.AutoRender)
+	}
+	fmt.Printf("  timelapse: %s\n", tlState)
 	return 0
 }

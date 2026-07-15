@@ -1,21 +1,37 @@
 package prusaconnect
 
 import (
+	"bytes"
 	"context"
+	"image"
+	"image/jpeg"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/MakerEyeLabs/makereye/internal/config"
+	"github.com/MakerEyeLabs/makereye/internal/snapshot"
 )
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
+
+// testJPEGOnce builds one minimal valid JPEG shared by all tests.
+var testJPEGOnce = sync.OnceValue(func() []byte {
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2)), nil); err != nil {
+		panic(err)
+	}
+	return buf.Bytes()
+})
+
+func testJPEG() []byte { return testJPEGOnce() }
 
 func testConfig() *config.Config {
 	cfg := config.Default()
@@ -32,20 +48,20 @@ func testConfig() *config.Config {
 // are ever made in tests.
 func newTestUploader(cfg *config.Config, go2rtcSrv, prusaSrv *httptest.Server) *Uploader {
 	cfg.Go2rtc.HTTPListen = strings.TrimPrefix(go2rtcSrv.URL, "http://")
-	u := NewUploader(cfg, testLogger())
+	u := NewUploader(cfg, snapshot.NewGo2rtcSource(cfg), testLogger())
 	u.prusaURL = prusaSrv.URL
 	return u
 }
 
 func TestUploaderUploadsSuccessfully(t *testing.T) {
-	const fakeJPEG = "\xff\xd8\xff\xd9fake-jpeg-bytes"
+	fakeJPEG := testJPEG()
 
 	go2rtcSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/frame.jpeg" || r.URL.Query().Get("src") != "camera" {
 			t.Errorf("unexpected go2rtc request: %s %s", r.Method, r.URL)
 		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(fakeJPEG))
+		_, _ = w.Write(fakeJPEG)
 	}))
 	defer go2rtcSrv.Close()
 
@@ -83,7 +99,7 @@ func TestUploaderUploadsSuccessfully(t *testing.T) {
 	if gotContentType != "image/jpg" {
 		t.Errorf("content-type header = %q, want image/jpg", gotContentType)
 	}
-	if string(gotBody) != fakeJPEG {
+	if !bytes.Equal(gotBody, fakeJPEG) {
 		t.Errorf("uploaded body = %q, want %q", gotBody, fakeJPEG)
 	}
 
@@ -99,7 +115,7 @@ func TestUploaderUploadsSuccessfully(t *testing.T) {
 func TestUploaderFetchesViaLoopbackWhenListenIsWildcard(t *testing.T) {
 	go2rtcSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("jpeg"))
+		_, _ = w.Write(testJPEG())
 	}))
 	defer go2rtcSrv.Close()
 
@@ -134,7 +150,7 @@ func TestUploaderSendsGo2rtcBasicAuthWhenConfigured(t *testing.T) {
 	go2rtcSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUser, gotPass, gotOK = r.BasicAuth()
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("jpeg"))
+		_, _ = w.Write(testJPEG())
 	}))
 	defer go2rtcSrv.Close()
 
@@ -196,7 +212,7 @@ func TestUploaderRecordsFailureOnGo2rtcError(t *testing.T) {
 func TestUploaderRecordsFailureOnPrusaNon2xx(t *testing.T) {
 	go2rtcSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("jpeg"))
+		_, _ = w.Write(testJPEG())
 	}))
 	defer go2rtcSrv.Close()
 
@@ -224,7 +240,7 @@ func TestUploaderRecordsFailureOnPrusaNon2xx(t *testing.T) {
 func TestUploaderDoubleStartFails(t *testing.T) {
 	go2rtcSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("jpeg"))
+		_, _ = w.Write(testJPEG())
 	}))
 	defer go2rtcSrv.Close()
 	prusaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -249,7 +265,7 @@ func TestUploaderDoubleStartFails(t *testing.T) {
 func TestUploaderStop(t *testing.T) {
 	go2rtcSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("jpeg"))
+		_, _ = w.Write(testJPEG())
 	}))
 	defer go2rtcSrv.Close()
 	prusaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

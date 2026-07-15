@@ -29,6 +29,15 @@ type Request struct {
 	// Brightness is the target level for CmdLightSet: "on", "off", or
 	// a number "0"-"255".
 	Brightness string `json:"brightness,omitempty"`
+
+	// Timelapse job parameters (CmdTimelapseStart) and target
+	// (CmdTimelapseRender). Zero values mean "use configured defaults".
+	TimelapseName     string `json:"timelapse_name,omitempty"`
+	TimelapseInterval int    `json:"timelapse_interval,omitempty"`
+	TimelapseFPS      int    `json:"timelapse_fps,omitempty"`
+	TimelapseLight    string `json:"timelapse_light,omitempty"`
+	TimelapseLightVal int    `json:"timelapse_light_brightness,omitempty"`
+	TimelapseJobID    string `json:"timelapse_job_id,omitempty"`
 }
 
 // Response is the daemon's reply to a Request.
@@ -49,6 +58,12 @@ const (
 	CmdPrusaStop     = "prusa-stop"
 	CmdPrusaRestart  = "prusa-restart"
 	CmdLightSet      = "light-set"
+
+	CmdTimelapseStart  = "timelapse-start"
+	CmdTimelapseStop   = "timelapse-stop"
+	CmdTimelapseStatus = "timelapse-status"
+	CmdTimelapseList   = "timelapse-list"
+	CmdTimelapseRender = "timelapse-render"
 )
 
 // Handler processes a Request and returns a Response. The daemon supplies

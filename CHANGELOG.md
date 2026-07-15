@@ -8,6 +8,17 @@ SemVer once tagged releases begin.
 
 ### Added
 
+- Milestone 5: manual timelapse (`internal/timelapse`). One capture job
+  at a time from the shared snapshot source, durable per-job state
+  (atomic manifests, zero-padded frame sequences, never deleting frames
+  on failure), automatic resume of jobs interrupted by
+  restarts/updates, free-space guardrails, and serialized ffmpeg
+  rendering with a watchdog and validated output. CLI:
+  `makereye timelapse start/stop/status/list/render`; Home Assistant:
+  start/stop/render buttons, interval/fps number entities, and job
+  sensors. New `internal/snapshot` package shared with the Prusa
+  uploader, which now also validates that captured frames are decodable
+  JPEGs before uploading.
 - Milestone 4: lighting framework (`internal/lighting`) with the Wyze
   Cam v3 Spotlight Kit as the first backend. Configured under
   `lighting:` as a list of typed lights; controlled via

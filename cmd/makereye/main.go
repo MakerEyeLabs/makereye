@@ -41,6 +41,8 @@ func run(args []string) int {
 		return cmdPrusa(rest)
 	case "light":
 		return cmdLight(rest)
+	case "timelapse":
+		return cmdTimelapse(rest)
 	case "help", "-h", "--help":
 		printUsage()
 		return 0
@@ -66,6 +68,12 @@ Usage:
   makereye prusa stop [-config path]       Stop Prusa Connect snapshot uploads
   makereye prusa restart [-config path]    Restart Prusa Connect snapshot uploads
   makereye light <name> <0-255|on|off>     Set a configured light's brightness
+  makereye timelapse start [-name N] [-interval SEC] [-fps N]
+                                           Start a timelapse capture job
+  makereye timelapse stop                  Stop the active capture job
+  makereye timelapse status                Show active/most recent job
+  makereye timelapse list                  List all timelapse jobs
+  makereye timelapse render <job-id>       Render (or re-render) a job
 
 The default config path is `+config.DefaultConfigPath+`.
 `)

@@ -208,29 +208,40 @@ can be added later without breaking existing setups.
   group for `/dev/ttyUSB*` access (now granted by the systemd unit and
   the installer).
 
-## Milestone 5 — Manual timelapse — NOT STARTED
+## Milestone 5 — Manual timelapse — IN PROGRESS
 
-- Start/stop jobs via CLI **and** MQTT/HA in the same milestone (per the
-  usability rule — the old "CLI now, MQTT later" phrasing of this
-  milestone is exactly what the rule exists to prevent).
-- Periodic snapshots from the shared go2rtc pipeline (same
-  `/api/frame.jpeg` pattern as `internal/prusaconnect` — not a second
-  camera claim).
-- Render with ffmpeg (shell out, don't reimplement encoding; ffmpeg is
-  already installed by `scripts/install.sh`).
-- Preserve source frames if rendering fails, so nothing is silently
-  lost.
-- Progress/completion reporting via `makereye status` and MQTT
-  (HA sensor: current job, frame count, last render result).
-- Storage design questions to answer at implementation time: output
-  location under the state dir, SD-card wear and free-space guardrails,
-  retention policy for frames and rendered files, how finished
-  timelapses get off the device (the web UI milestone adds
-  browse/download; until then, network file access or `scp`).
-- Optional lighting hook (if Milestone 4's `lighting:` is configured):
-  hold a configured brightness while a timelapse job is active, restore
-  after.
-- Config placeholder already present: `timelapse.enabled`.
+Full design in `DESIGN.md` "Timelapse"; summary:
+
+- One active capture job at a time, built on a shared snapshot source
+  (`internal/snapshot`, also used by the Prusa uploader) that fetches
+  and validates JPEG frames from the go2rtc pipeline — not a second
+  camera claim, and a future seam for coordinated full-resolution
+  stills.
+- Durable job model under the state dir: per-job directory with an
+  atomically-written manifest, zero-padded frame sequence, explicit
+  phases (capturing/stopped/rendering/complete/capture_failed/
+  render_failed/interrupted). Frames are never deleted because
+  something failed. Interrupted jobs are detected at startup and can
+  auto-resume (`resume_interrupted`), so a daemon restart or
+  `update.sh` doesn't silently kill a long capture.
+- Storage guardrails: configurable output dir (point it at a mounted
+  NAS to avoid SD wear entirely), free-space threshold checked at start,
+  before every frame, and before rendering. No automatic retention
+  deletion. Retrieval over SSH/scp is acceptable for now (web UI
+  milestone adds browse/download; upload automation is candidate work).
+- Rendering via ffmpeg at reduced priority with a watchdog timeout,
+  serialized (one render at a time), output validated before a job is
+  `complete`; failed renders keep all frames and can be retried.
+  Encoder configurable (libx264 default; hardware `h264_v4l2m2m` as an
+  option pending validation against live-stream encoder contention).
+- Operable per the usability rule from CLI (`makereye timelapse
+  start/stop/status/list/render`) and Home Assistant (start/stop/render
+  buttons, interval and fps number entities for per-job parameters,
+  phase/frames/failures/last-render sensors), all through the same
+  daemon internals.
+- Optional lighting hold: a job can pin a configured light at a
+  brightness during capture and restore it after (plus HA automations
+  can compose the Milestone 4 light entities freely).
 
 ## Milestone 6 — PrusaLink automatic timelapse — NOT STARTED
 
@@ -324,3 +335,16 @@ editing `config.yaml`.
   default — during active development an unattended pull can break the
   camera while nobody is watching; user-triggered updates (button in
   HA per the above) are the intended model.
+- **Automatic timelapse upload**: push completed renders (and
+  optionally frames) to Proton Drive, Nextcloud, or a NAS share.
+  Intended design: shell out to `rclone` as the transport (same
+  philosophy as ffmpeg-for-encoding — rclone covers WebDAV/Nextcloud,
+  SMB, and is the only maintained Proton Drive path) rather than
+  implementing per-provider clients.
+- **Managed NAS mounts**: MakerEye configures the NAS mount itself from
+  `config.yaml` (share address, credentials, mount point), with
+  `scripts/install.sh` installing the required packages (`cifs-utils`
+  or nfs client), so pointing `timelapse.output_dir` at network storage
+  is a config edit instead of a manual fstab/systemd-mount exercise.
+  Doubles as the SD-wear answer: capture frames straight to the NAS.
+  Possibly its own milestone; depends on the upload item's fate.

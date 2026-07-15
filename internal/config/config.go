@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -24,12 +25,12 @@ type Config struct {
 	PrusaConnect PrusaConnectConfig `yaml:"prusa_connect"`
 	MQTT         MQTTConfig         `yaml:"mqtt"`
 	Lighting     LightingConfig     `yaml:"lighting"`
+	Timelapse    TimelapseConfig    `yaml:"timelapse"`
 	System       SystemConfig       `yaml:"system"`
 
 	// The subsystems below are not implemented yet. Their config
 	// sections are accepted and validated only enough to catch obvious
 	// mistakes; setting enabled: true has no runtime effect yet.
-	Timelapse TimelapseConfig `yaml:"timelapse"`
 	PrusaLink PrusaLinkConfig `yaml:"prusalink"`
 	Motion    MotionConfig    `yaml:"motion"`
 	AI        AIConfig        `yaml:"ai"`
@@ -214,9 +215,75 @@ type LightConfig struct {
 	StartupBrightness int `yaml:"startup_brightness"`
 }
 
-// TimelapseConfig is a placeholder for Milestone 5. No runtime effect.
+// Timelapse encoder types.
+const (
+	EncoderLibx264 = "libx264"
+	EncoderV4L2M2M = "h264_v4l2m2m"
+)
+
+// TimelapseConfig controls the optional timelapse subsystem. Enabling
+// it makes `makereye timelapse ...` and the HA timelapse entities
+// available; it does not start a job.
 type TimelapseConfig struct {
 	Enabled bool `yaml:"enabled"`
+
+	// OutputDir holds per-job directories (frames, manifest, rendered
+	// output). Empty means <system.state_dir>/timelapses. Point it at a
+	// mounted NAS share to avoid SD-card wear entirely.
+	OutputDir string `yaml:"output_dir"`
+
+	// DefaultIntervalSeconds is the capture interval used when a job
+	// doesn't specify one.
+	DefaultIntervalSeconds int `yaml:"default_interval_seconds"`
+
+	// DefaultPlaybackFPS is the rendered video's frame rate used when a
+	// job doesn't specify one.
+	DefaultPlaybackFPS int `yaml:"default_playback_fps"`
+
+	// AutoRender renders automatically when a job is stopped. Manual
+	// rendering (`makereye timelapse render <job-id>`) always works.
+	AutoRender bool `yaml:"auto_render"`
+
+	// RetainFrames keeps source frames after a successful, validated
+	// render. Frames are never deleted on failure regardless.
+	RetainFrames bool `yaml:"retain_frames"`
+
+	// ResumeInterrupted continues capturing jobs that were active when
+	// the daemon stopped (restarts, updates, power loss), instead of
+	// only marking them interrupted.
+	ResumeInterrupted bool `yaml:"resume_interrupted"`
+
+	// MinimumFreeSpaceMB stops capture (and refuses renders) when the
+	// output filesystem's available space falls below this.
+	MinimumFreeSpaceMB int `yaml:"minimum_free_space_mb"`
+
+	// SnapshotTimeoutSeconds bounds each frame capture.
+	SnapshotTimeoutSeconds int `yaml:"snapshot_timeout_seconds"`
+
+	// Encoder is the ffmpeg video encoder: "libx264" (default, safe) or
+	// "h264_v4l2m2m" (Pi hardware encoder; may contend with the live
+	// stream's encoding, validate before relying on it).
+	Encoder string `yaml:"encoder"`
+
+	// RenderTimeoutMinutes is the watchdog for a single ffmpeg render.
+	RenderTimeoutMinutes int `yaml:"render_timeout_minutes"`
+
+	// Light optionally names a configured light (see lighting.lights)
+	// to hold at LightBrightness while capturing; its previous level is
+	// restored when capture stops. Empty disables the hold.
+	Light string `yaml:"light"`
+
+	// LightBrightness (0-255) is the level held during capture when
+	// Light is set.
+	LightBrightness int `yaml:"light_brightness"`
+}
+
+// TimelapseOutputDir resolves the effective timelapse output directory.
+func (c *Config) TimelapseOutputDir() string {
+	if c.Timelapse.OutputDir != "" {
+		return c.Timelapse.OutputDir
+	}
+	return filepath.Join(c.System.StateDir, "timelapses")
 }
 
 // PrusaLinkConfig is a placeholder for Milestone 6. No runtime effect.
@@ -272,6 +339,19 @@ func Default() *Config {
 		},
 		Lighting: LightingConfig{
 			Enabled: false,
+		},
+		Timelapse: TimelapseConfig{
+			Enabled:                false,
+			DefaultIntervalSeconds: 30,
+			DefaultPlaybackFPS:     30,
+			AutoRender:             true,
+			RetainFrames:           true,
+			ResumeInterrupted:      true,
+			MinimumFreeSpaceMB:     1024,
+			SnapshotTimeoutSeconds: 10,
+			Encoder:                EncoderLibx264,
+			RenderTimeoutMinutes:   60,
+			LightBrightness:        255,
 		},
 		System: SystemConfig{
 			LogLevel: "info",
@@ -381,6 +461,39 @@ func (c *Config) Validate() error {
 			}
 			check(l.StartupBrightness < 0 || l.StartupBrightness > 255,
 				"lighting.lights[%d].startup_brightness must be 0-255, got %d", i, l.StartupBrightness)
+		}
+	}
+
+	if c.Timelapse.Enabled {
+		check(c.Timelapse.DefaultIntervalSeconds < 1 || c.Timelapse.DefaultIntervalSeconds > 3600,
+			"timelapse.default_interval_seconds must be 1-3600, got %d", c.Timelapse.DefaultIntervalSeconds)
+		check(c.Timelapse.DefaultPlaybackFPS < 1 || c.Timelapse.DefaultPlaybackFPS > 120,
+			"timelapse.default_playback_fps must be 1-120, got %d", c.Timelapse.DefaultPlaybackFPS)
+		check(c.Timelapse.MinimumFreeSpaceMB < 0,
+			"timelapse.minimum_free_space_mb must not be negative, got %d", c.Timelapse.MinimumFreeSpaceMB)
+		check(c.Timelapse.SnapshotTimeoutSeconds < 1 || c.Timelapse.SnapshotTimeoutSeconds > 60,
+			"timelapse.snapshot_timeout_seconds must be 1-60, got %d", c.Timelapse.SnapshotTimeoutSeconds)
+		check(c.Timelapse.RenderTimeoutMinutes < 1 || c.Timelapse.RenderTimeoutMinutes > 720,
+			"timelapse.render_timeout_minutes must be 1-720, got %d", c.Timelapse.RenderTimeoutMinutes)
+		switch c.Timelapse.Encoder {
+		case EncoderLibx264, EncoderV4L2M2M:
+		default:
+			errs = append(errs, fmt.Sprintf(
+				"timelapse.encoder must be %q or %q, got %q", EncoderLibx264, EncoderV4L2M2M, c.Timelapse.Encoder))
+		}
+		check(c.Timelapse.LightBrightness < 0 || c.Timelapse.LightBrightness > 255,
+			"timelapse.light_brightness must be 0-255, got %d", c.Timelapse.LightBrightness)
+		if c.Timelapse.Light != "" {
+			check(!c.Lighting.Enabled, "timelapse.light is set but lighting is disabled")
+			found := false
+			for _, l := range c.Lighting.Lights {
+				if l.Name == c.Timelapse.Light {
+					found = true
+					break
+				}
+			}
+			check(c.Lighting.Enabled && !found,
+				"timelapse.light %q does not match any configured lighting.lights name", c.Timelapse.Light)
 		}
 	}
 

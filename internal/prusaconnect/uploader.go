@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/MakerEyeLabs/makereye/internal/config"
-	"github.com/MakerEyeLabs/makereye/internal/go2rtc"
+	"github.com/MakerEyeLabs/makereye/internal/snapshot"
 )
 
 // snapshotURL is Prusa Connect's fixed webcam snapshot ingestion
@@ -30,11 +30,6 @@ const fetchTimeout = 5 * time.Second
 // uploadTimeout bounds the Prusa Connect upload, a real network call to
 // an external service.
 const uploadTimeout = 15 * time.Second
-
-// maxSnapshotBytes caps how much of go2rtc's response body is read, as a
-// sanity bound, not a real limit: JPEG snapshots at any sane camera
-// resolution are a small fraction of this.
-const maxSnapshotBytes = 32 << 20 // 32 MiB
 
 // Phase describes the current lifecycle phase of the uploader.
 type Phase string
@@ -57,12 +52,13 @@ type State struct {
 	LastUploadAt time.Time
 }
 
-// Uploader periodically pulls a JPEG snapshot from go2rtc's HTTP API and
-// PUTs it to Prusa Connect.
+// Uploader periodically pulls a JPEG snapshot from the shared snapshot
+// source and PUTs it to Prusa Connect.
 type Uploader struct {
 	cfg    *config.Config
 	logger *slog.Logger
 	client *http.Client
+	source snapshot.Source
 
 	// prusaURL defaults to snapshotURL; it's a field rather than a
 	// direct use of the constant so tests can point it at an
@@ -75,10 +71,10 @@ type Uploader struct {
 	wg     sync.WaitGroup
 }
 
-// NewUploader creates an Uploader for cfg. It does not start uploading,
-// callers decide whether to Start it (e.g. based on
-// cfg.PrusaConnect.Enabled).
-func NewUploader(cfg *config.Config, logger *slog.Logger) *Uploader {
+// NewUploader creates an Uploader for cfg, capturing frames from
+// source. It does not start uploading, callers decide whether to Start
+// it (e.g. based on cfg.PrusaConnect.Enabled).
+func NewUploader(cfg *config.Config, source snapshot.Source, logger *slog.Logger) *Uploader {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -86,6 +82,7 @@ func NewUploader(cfg *config.Config, logger *slog.Logger) *Uploader {
 		cfg:      cfg,
 		logger:   logger,
 		client:   &http.Client{},
+		source:   source,
 		prusaURL: snapshotURL,
 		state:    State{Phase: PhaseStopped},
 	}
@@ -189,52 +186,20 @@ func (u *Uploader) loop(ctx context.Context) {
 }
 
 func (u *Uploader) uploadOnce(ctx context.Context) {
-	snap, err := u.fetchSnapshot(ctx)
+	fetchCtx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	frame, err := u.source.Capture(fetchCtx)
+	cancel()
 	if err != nil {
-		u.recordFailure(fmt.Errorf("fetching snapshot from go2rtc: %w", err))
+		u.recordFailure(fmt.Errorf("capturing snapshot: %w", err))
 		return
 	}
 
-	if err := u.pushSnapshot(ctx, snap); err != nil {
+	if err := u.pushSnapshot(ctx, frame.Data); err != nil {
 		u.recordFailure(fmt.Errorf("uploading to Prusa Connect: %w", err))
 		return
 	}
 
 	u.recordSuccess()
-}
-
-// fetchSnapshot pulls a JPEG frame from go2rtc's own HTTP API. This is
-// always a same-host call to MakerEye's own configured go2rtc.http_listen,
-// authenticated the same way an external client would be if
-// go2rtc.auth is set.
-func (u *Uploader) fetchSnapshot(ctx context.Context) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
-	defer cancel()
-
-	url := fmt.Sprintf("http://%s/api/frame.jpeg?src=%s",
-		go2rtc.ClientHostPort(u.cfg.Go2rtc.HTTPListen), u.cfg.Stream.Name)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	if u.cfg.Go2rtc.Auth.Username != "" {
-		req.SetBasicAuth(u.cfg.Go2rtc.Auth.Username, u.cfg.Go2rtc.Auth.Password)
-	}
-
-	resp, err := u.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSnapshotBytes))
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("go2rtc returned status %d", resp.StatusCode)
-	}
-	return body, nil
 }
 
 // pushSnapshot uploads a JPEG snapshot to Prusa Connect, following the
