@@ -1,0 +1,21 @@
+[Unit]
+Description=MakerEye remote timelapse renderer
+Documentation=https://github.com/MakerEyeLabs/makereye
+# remote-fs: the watched directory is normally a network share also
+# written by the capture device.
+After=network-online.target remote-fs.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/makereye-render.conf
+ExecStart=/usr/local/bin/makereye-render --watch ${WATCH_DIR} --interval ${POLL_INTERVAL}
+Restart=on-failure
+RestartSec=30
+# Runs as root by default so it can write to however the share is
+# mounted; set User=/Group= here if your mount's permissions allow a
+# dedicated user (recommended where possible).
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

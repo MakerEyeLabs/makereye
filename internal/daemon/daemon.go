@@ -25,7 +25,6 @@ import (
 	"github.com/MakerEyeLabs/makereye/internal/snapshot"
 	"github.com/MakerEyeLabs/makereye/internal/sysinfo"
 	"github.com/MakerEyeLabs/makereye/internal/timelapse"
-	"github.com/MakerEyeLabs/makereye/internal/version"
 )
 
 // Daemon is the running MakerEye process: it supervises go2rtc, the
@@ -93,17 +92,21 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 	})
 	// Push MQTT state promptly on timelapse phase transitions.
 	d.lapse.SetOnChange(d.bridge.PublishState)
+	// Pause Prusa uploads while a render saturates the CPU: snapshot
+	// fetches would just time out and rack up failure noise.
+	d.uploader.SetSuspended(d.lapse.IsRendering)
 	return d
 }
 
 // mqttTelemetry collects device metrics for the MQTT diagnostic
-// sensors. Metric collection failures just omit that key -- telemetry
-// must never produce errors of its own.
+// sensors. Metric collection failures just omit that key (discovery
+// templates default missing keys) -- telemetry must never produce
+// errors of its own. The MakerEye version is deliberately not here: it
+// is already the HA device's sw_version.
 func (d *Daemon) mqttTelemetry() map[string]any {
 	round1 := func(v float64) float64 { return math.Round(v*10) / 10 }
 	t := map[string]any{
-		"makereye_version": version.String(),
-		"os_version":       d.sys.OSVersion(),
+		"os_version": d.sys.OSVersion(),
 	}
 	if v, err := d.sys.CPUPercent(); err == nil {
 		t["cpu_percent"] = round1(v)
@@ -111,15 +114,43 @@ func (d *Daemon) mqttTelemetry() map[string]any {
 	if v, err := d.sys.MemoryPercent(); err == nil {
 		t["memory_percent"] = round1(v)
 	}
+	if v, err := d.sys.MemoryAvailableMB(); err == nil {
+		t["memory_available_mb"] = round1(v)
+	}
 	if v, err := d.sys.CPUTempC(); err == nil {
 		t["cpu_temp_c"] = round1(v)
 	}
-	if pct, mount, err := d.sys.MaxDiskUsage(); err == nil {
-		t["disk_used_percent"] = round1(pct)
-		t["disk_fullest_mount"] = mount
+	if pct, freeGB, err := d.sys.DiskUsage("/"); err == nil {
+		t["disk_root_percent"] = round1(pct)
+		t["disk_root_free_gb"] = round1(freeGB)
+	}
+	if d.cfg.Timelapse.Enabled {
+		if pct, freeGB, err := d.sys.DiskUsage(d.cfg.TimelapseOutputDir()); err == nil {
+			t["disk_capture_percent"] = round1(pct)
+			t["disk_capture_free_gb"] = round1(freeGB)
+			minGB := float64(d.cfg.Timelapse.MinimumFreeSpaceMB) / 1024
+			t["capture_storage_low"] = freeGB < minGB
+		}
 	}
 	if secs, err := d.sys.UptimeSeconds(); err == nil {
 		t["uptime_seconds"] = secs
+		t["uptime_human"] = sysinfo.FormatUptime(secs)
+	}
+	if dbm, link, iface, err := d.sys.WiFiSignal(); err == nil {
+		t["wifi_signal_dbm"] = dbm
+		t["wifi_link_quality"] = link
+		t["wifi_interface"] = iface
+	}
+	if ts, err := d.sys.Throttled(); err == nil {
+		t["undervoltage"] = ts.UndervoltageNow
+		t["undervoltage_occurred"] = ts.UndervoltageOccurred
+		t["throttled"] = ts.ThrottledNow
+		t["throttled_occurred"] = ts.ThrottledOccurred
+		t["freq_capped"] = ts.FreqCappedNow
+		t["freq_capped_occurred"] = ts.FreqCappedOccurred
+	}
+	if synced, err := d.sys.ClockSynchronized(); err == nil {
+		t["clock_synchronized"] = synced
 	}
 	return t
 }

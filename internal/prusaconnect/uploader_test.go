@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -235,6 +236,47 @@ func TestUploaderRecordsFailureOnPrusaNon2xx(t *testing.T) {
 	if !strings.Contains(u.Status().LastError, "401") {
 		t.Errorf("LastError = %q, want it to mention status 401", u.Status().LastError)
 	}
+}
+
+func TestUploaderSkipsTicksWhileSuspended(t *testing.T) {
+	var requests int32
+	go2rtcSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(testJPEG())
+	}))
+	defer go2rtcSrv.Close()
+	prusaSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer prusaSrv.Close()
+
+	cfg := testConfig()
+	u := newTestUploader(cfg, go2rtcSrv, prusaSrv)
+
+	var suspended atomic.Bool
+	suspended.Store(true)
+	u.SetSuspended(suspended.Load)
+
+	if err := u.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer u.Stop(context.Background())
+
+	// Several ticks pass while suspended: no fetches, no uploads, no
+	// failures recorded.
+	time.Sleep(2500 * time.Millisecond)
+	if got := atomic.LoadInt32(&requests); got != 0 {
+		t.Errorf("expected no snapshot fetches while suspended, got %d", got)
+	}
+	st := u.Status()
+	if st.UploadCount != 0 || st.FailureCount != 0 {
+		t.Errorf("suspended ticks must not touch counters, got %+v", st)
+	}
+
+	// Unsuspend: uploads resume.
+	suspended.Store(false)
+	waitForUploadCount(t, u, 1, 4*time.Second)
 }
 
 func TestUploaderDoubleStartFails(t *testing.T) {

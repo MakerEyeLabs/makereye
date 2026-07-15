@@ -208,7 +208,7 @@ can be added later without breaking existing setups.
   group for `/dev/ttyUSB*` access (now granted by the systemd unit and
   the installer).
 
-## Milestone 5 — Manual timelapse — IN PROGRESS
+## Milestone 5 — Manual timelapse — ✅ DONE
 
 Full design in `DESIGN.md` "Timelapse"; summary:
 
@@ -242,22 +242,66 @@ Full design in `DESIGN.md` "Timelapse"; summary:
 - Optional lighting hold: a job can pin a configured light at a
   brightness during capture and restore it after (plus HA automations
   can compose the Milestone 4 light entities freely).
+- **Validated on real hardware** (Pi Zero 2 W): 292-frame capture with
+  streaming and Prusa Connect uploads running, start/stop from Home
+  Assistant, on-device libx264 render (~150s, playable MP4). Findings
+  folded back in: Prusa uploads now pause during renders (the
+  CPU-saturated snapshot endpoint just timed out for the render's
+  duration), and renders run under `ionice` as well as `nice`.
+- **Remote rendering** (added post-validation): `scripts/
+  makereye-render.sh` + `install-renderer.sh` render jobs on another
+  Debian machine from a shared timelapse directory — one-shot per job
+  dir, or a polling systemd watcher that renders jobs as their capture
+  finishes (polling because inotify can't see cross-host changes on
+  network shares). Recommended setup for Pi Zero class devices:
+  `output_dir` on a NAS share, `auto_render: false`.
 
-## Milestone 6 — PrusaLink automatic timelapse — NOT STARTED
+## Milestone 6 — Capture triggers — NOT STARTED
 
-- Detect printer job state via PrusaLink's local API; auto start/stop
-  Milestone 5 timelapse jobs around print jobs.
-- Associate job metadata (filename, etc.) with output files.
-- Scope note (per design priority #2): Home Assistant users can already
-  get most of this once Milestones 3+5 exist, by driving MakerEye's
-  timelapse MQTT commands from HA's own PrusaLink integration — document
-  that recipe as part of this milestone. The on-device PrusaLink polling
-  this milestone adds is for setups without Home Assistant, and must not
-  fight with HA-driven control (last command wins, no flapping).
-- Config placeholder already present: `prusalink.enabled`.
-- **Research needed at implementation time**: PrusaLink's local API
-  surface for job state (endpoints, auth, REST vs websocket, how job
-  start/end is best detected).
+Rewritten after Milestone 5's hardware validation: interval capture
+works, but for print timelapses it produces nozzle-bouncing-everywhere
+video. Studio-quality print timelapses need frames captured at a
+*moment the printer chooses* (end of layer, head parked), which
+reframes the design from "printer timelapse" to a generic **capture
+trigger** pipeline.
+
+- `CaptureTrigger` abstraction: every trigger source produces the same
+  `CaptureRequest{Reason, Time}` into the existing timelapse capture
+  pipeline; the job subsystem doesn't know or care where a frame
+  request came from. The current interval loop becomes just one
+  trigger (`IntervalTrigger`), and a job is configured with a trigger
+  rather than hard-coding the ticker.
+- Planned trigger backends, in priority order:
+  1. **GPIOTrigger (tier 1, the reference for print timelapses)**: a
+     printer pin (e.g. Prusa's official GPIO hackerboard) pulses a Pi
+     GPIO after the layer-change G-code parks the head. Deterministic,
+     near-zero latency, no polling, matches the appliance philosophy.
+  2. **USBSerialTrigger (tier 2, no extra hardware)**: the printer is
+     connected over USB serial and layer-change G-code emits
+     `M118 MAKEREYE_CAPTURE`; MakerEye watches the serial stream for
+     the marker. Nearly as good as GPIO, needs only a cable.
+  3. **MQTTTrigger / ManualTrigger**: a capture command topic and a
+     CLI/HA "capture frame" button — free once the abstraction exists,
+     and they make every other integration (HA automations, Node-RED,
+     scripts) a trigger source.
+  4. **PrusaLinkTrigger (tier 3, additive, not foundational)**: only if
+     PrusaLink's API exposes a usable event stream; polling job state
+     gives coarse start/stop automation, not per-layer precision. Never
+     a dependency of the architecture.
+- **Embrace custom G-code, don't treat it as optional**: ship an
+  official PrusaSlicer "after layer change" snippet in the docs (M400
+  to flush moves, park/wipe move, `M118 MAKEREYE_CAPTURE` or the GPIO
+  pulse macro, small dwell), so setup is paste-one-snippet with no
+  OctoPrint or plugins.
+- Interval-based jobs (construction timelapses etc.) keep working
+  unchanged; triggered jobs likely want auto-stop rules (idle timeout /
+  explicit stop trigger) — design at implementation time.
+- Config placeholder already present: `prusalink.enabled` (will be
+  reshaped into trigger configuration).
+- **Research needed at implementation time**: GPIO access from the
+  unprivileged daemon (gpiochip character device + `gpio` group),
+  serial-port sharing semantics if the same USB port ever serves both
+  trigger input and lighting output, and debounce/edge handling.
 
 ## Milestone 7 — Local web interface — NOT STARTED
 

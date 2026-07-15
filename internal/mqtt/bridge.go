@@ -697,35 +697,83 @@ func (b *Bridge) discoveryConfigs() map[string][]byte {
 
 	if b.hooks.Telemetry != nil {
 		dp := b.cfg.MQTT.DiscoveryPrefix
-		diag := func(name, key string, extra map[string]any) {
+		// Missing keys (e.g. no vcgencmd off-Pi, no Wi-Fi on wired
+		// devices) render as empty via | default instead of erroring.
+		diag := func(component, name, key, template string, extra map[string]any) {
 			cfg := merge(common(name, key), map[string]any{
 				"state_topic":     b.telemetryTopic(),
-				"value_template":  fmt.Sprintf("{{ value_json.%s }}", key),
+				"value_template":  template,
 				"entity_category": "diagnostic",
 			})
-			configs[fmt.Sprintf("%s/sensor/%s/%s/config", dp, node, key)] = merge(cfg, extra)
+			configs[fmt.Sprintf("%s/%s/%s/%s/config", dp, component, node, key)] = merge(cfg, extra)
 		}
-		diag("MakerEye version", "makereye_version", nil)
-		diag("OS version", "os_version", nil)
-		diag("CPU usage", "cpu_percent", map[string]any{
+		sensor := func(name, key string, extra map[string]any) {
+			diag("sensor", name, key,
+				fmt.Sprintf("{{ value_json.%s | default('') }}", key), extra)
+		}
+		binary := func(name, key string, extra map[string]any) {
+			diag("binary_sensor", name, key,
+				fmt.Sprintf("{{ 'ON' if value_json.%s | default(false) else 'OFF' }}", key), extra)
+		}
+		attrs := func(keys ...string) map[string]any {
+			pairs := make([]string, len(keys))
+			for i, k := range keys {
+				pairs[i] = fmt.Sprintf("%q: value_json.%s | default('')", k, k)
+			}
+			return map[string]any{
+				"json_attributes_topic":    b.telemetryTopic(),
+				"json_attributes_template": "{{ {" + strings.Join(pairs, ", ") + "} | tojson }}",
+			}
+		}
+
+		sensor("OS version", "os_version", nil)
+		sensor("CPU usage", "cpu_percent", map[string]any{
 			"unit_of_measurement": "%", "state_class": "measurement",
 		})
-		diag("Memory usage", "memory_percent", map[string]any{
+		sensor("Memory usage", "memory_percent", map[string]any{
 			"unit_of_measurement": "%", "state_class": "measurement",
 		})
-		diag("CPU temperature", "cpu_temp_c", map[string]any{
+		sensor("Memory available", "memory_available_mb", map[string]any{
+			"unit_of_measurement": "MB", "device_class": "data_size",
+			"state_class": "measurement",
+		})
+		sensor("CPU temperature", "cpu_temp_c", map[string]any{
 			"unit_of_measurement": "°C", "device_class": "temperature",
 			"state_class": "measurement",
 		})
-		diag("Disk usage (fullest)", "disk_used_percent", map[string]any{
-			"unit_of_measurement":      "%",
-			"state_class":              "measurement",
-			"json_attributes_topic":    b.telemetryTopic(),
-			"json_attributes_template": `{{ {"mount": value_json.disk_fullest_mount} | tojson }}`,
+		sensor("Disk usage (root)", "disk_root_percent", map[string]any{
+			"unit_of_measurement": "%", "state_class": "measurement",
 		})
-		diag("Uptime", "uptime_seconds", map[string]any{
+		sensor("Disk free (root)", "disk_root_free_gb", map[string]any{
+			"unit_of_measurement": "GB", "device_class": "data_size",
+			"state_class": "measurement",
+		})
+		if b.cfg.Timelapse.Enabled {
+			sensor("Disk usage (capture)", "disk_capture_percent", map[string]any{
+				"unit_of_measurement": "%", "state_class": "measurement",
+			})
+			sensor("Disk free (capture)", "disk_capture_free_gb", map[string]any{
+				"unit_of_measurement": "GB", "device_class": "data_size",
+				"state_class": "measurement",
+			})
+			binary("Capture storage low", "capture_storage_low", map[string]any{
+				"device_class": "problem",
+			})
+		}
+		sensor("Uptime", "uptime_seconds", merge(map[string]any{
 			"unit_of_measurement": "s", "device_class": "duration",
-		})
+		}, attrs("uptime_human")))
+		sensor("Wi-Fi signal", "wifi_signal_dbm", merge(map[string]any{
+			"unit_of_measurement": "dBm", "device_class": "signal_strength",
+			"state_class": "measurement",
+		}, attrs("wifi_link_quality", "wifi_interface")))
+		binary("Undervoltage", "undervoltage", merge(map[string]any{
+			"device_class": "problem",
+		}, attrs("undervoltage_occurred")))
+		binary("CPU throttled", "throttled", merge(map[string]any{
+			"device_class": "problem",
+		}, attrs("throttled_occurred", "freq_capped", "freq_capped_occurred")))
+		binary("System clock synchronized", "clock_synchronized", nil)
 	}
 
 	out := make(map[string][]byte, len(configs))

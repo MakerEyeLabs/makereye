@@ -307,10 +307,15 @@ duplicate. The discovered device has:
   `lighting.enabled` is true),
 - timelapse **start/stop/render buttons**, **interval/fps number
   entities**, and job sensors (when `timelapse.enabled` is true),
-- **diagnostic sensors**: MakerEye version, OS/kernel version, CPU
-  usage (averaged over the publish interval), memory usage, CPU
-  temperature, fullest-disk usage (with the mount as an attribute),
-  and uptime,
+- **diagnostic sensors**: OS/kernel version, CPU usage (averaged over
+  the publish interval), memory usage and available MB, CPU
+  temperature, root and capture-directory disk usage/free space, Wi-Fi
+  signal (link quality and interface as attributes), and uptime (with a
+  human-readable attribute); the MakerEye version is the device's
+  firmware field,
+- **diagnostic binary sensors**: capture storage low (the configured
+  free-space threshold), undervoltage and CPU throttled (Pi firmware
+  flags, with has-occurred attributes), and system clock synchronized,
 - sensors: stream phase, Prusa upload/failure counts,
 - availability wiring, so everything shows "unavailable" if the daemon
   or the Pi goes down.
@@ -471,6 +476,38 @@ Behavior worth knowing:
 - **Getting videos off the device** is `scp`/network-share territory for
   now; the web UI milestone adds browse/download, and upload automation
   is sketched in `ROADMAP.md` "Candidate work".
+
+### Remote rendering
+
+Rendering on a Pi Zero works but monopolizes it for minutes. The better
+setup for regular use: put the whole timelapse tree on a network share
+and render elsewhere.
+
+On the camera:
+
+```yaml
+timelapse:
+  output_dir: /mnt/share/timelapses   # a mounted NAS/SMB/NFS path
+  auto_render: false                  # capture only; render remotely
+```
+
+On any Debian-based machine that mounts the same share:
+
+```sh
+sudo ./scripts/install-renderer.sh /mnt/share/timelapses
+```
+
+installs ffmpeg + jq, a `makereye-render` command, and a systemd
+service that polls the tree (polling is deliberate: inotify doesn't see
+changes made by other hosts on network shares) and renders each job as
+its capture finishes — reading the same `job.json` manifests, updating
+them the same atomic way, and never deleting frames. Failed renders are
+marked `render_failed` and only retried explicitly, so a bad job can't
+loop the watcher. One-shot rendering needs no service at all:
+
+```sh
+makereye-render /mnt/share/timelapses/<job-id>-<name>
+```
 - **Lighting during capture**: set `timelapse.light` (and
   `light_brightness`) to pin a configured light while capturing and
   restore it after — or compose the light entities with the timelapse

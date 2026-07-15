@@ -68,11 +68,21 @@ type Uploader struct {
 	// httptest.Server.
 	prusaURL string
 
+	// suspended, when set and returning true, makes the loop skip
+	// upload ticks without recording failures. The daemon wires this to
+	// "a timelapse render is running": on a Pi Zero the render saturates
+	// the CPU and snapshot fetches just time out, so skipping avoids
+	// minutes of pointless failed requests and error noise.
+	suspended func() bool
+
 	mu     sync.Mutex
 	state  State
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
+
+// SetSuspended registers the skip-tick check. Call before Start.
+func (u *Uploader) SetSuspended(fn func() bool) { u.suspended = fn }
 
 // NewUploader creates an Uploader for cfg, capturing frames from
 // source. It does not start uploading, callers decide whether to Start
@@ -184,6 +194,9 @@ func (u *Uploader) loop(ctx context.Context) {
 		case <-ticker.C:
 		}
 
+		if u.suspended != nil && u.suspended() {
+			continue
+		}
 		u.uploadOnce(ctx)
 	}
 }

@@ -8,11 +8,22 @@ SemVer once tagged releases begin.
 
 ### Added
 
-- Device telemetry over MQTT (`internal/sysinfo`): MakerEye version,
-  OS/kernel version, CPU usage averaged over the publish interval,
-  memory usage, CPU temperature, fullest-disk usage (mount attached as
-  an attribute), and uptime, published every 30s and discovered in Home
-  Assistant as diagnostic sensors.
+- Device telemetry over MQTT (`internal/sysinfo`): OS/kernel version,
+  CPU usage averaged over the publish interval, memory usage and
+  available MB, CPU temperature, root and capture-directory disk
+  usage/free GB, Wi-Fi signal (link quality/interface as attributes),
+  and uptime (human-readable attribute), published every 30s as HA
+  diagnostic sensors; plus diagnostic binary sensors for capture
+  storage low (config threshold), undervoltage, CPU throttled (Pi
+  firmware flags with has-occurred attributes), and system clock
+  synchronization. The MakerEye version stays the HA device's firmware
+  field rather than duplicating as a sensor.
+- Remote timelapse renderer: `scripts/makereye-render.sh` renders jobs
+  from a shared timelapse directory on any Debian machine (one-shot per
+  job, or a polling systemd watcher installed by
+  `scripts/install-renderer.sh` that renders jobs as capture finishes).
+  Reads/updates the same job manifests atomically, never deletes
+  frames, and marks failed renders without hot-looping.
 - Device-wide error visibility in Home Assistant: a "Last command
   result" sensor reporting the outcome of every MQTT-initiated command,
   and a "Last error" sensor showing the newest runtime error from any

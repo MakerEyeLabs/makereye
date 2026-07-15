@@ -12,10 +12,15 @@ import (
 // output; injectable so render tests never need a real ffmpeg.
 type CommandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
-// defaultRunner runs the command via nice -n 19 so rendering has
-// minimal scheduling impact on live streaming.
+// defaultRunner runs the command via nice -n 19 (CPU) and, when
+// available, ionice -c3 (idle I/O class) so rendering has minimal
+// scheduling impact on live streaming and frame captures.
 func defaultRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "nice", append([]string{"-n", "19", name}, args...)...)
+	argv := append([]string{"-n", "19"}, name)
+	if ionice, err := exec.LookPath("ionice"); err == nil {
+		argv = append([]string{"-n", "19", ionice, "-c", "3"}, name)
+	}
+	cmd := exec.CommandContext(ctx, "nice", append(argv, args...)...)
 	return cmd.CombinedOutput()
 }
 
@@ -132,6 +137,15 @@ func (m *Manager) runRender(job *Job) {
 			m.mu.Unlock()
 		}
 	}
+}
+
+// IsRendering reports whether a render is currently in progress. Other
+// subsystems use this to yield the CPU-starved snapshot pipeline (e.g.
+// the Prusa uploader pauses during renders).
+func (m *Manager) IsRendering() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.rendering
 }
 
 // setRenderResult records a render outcome under the lock.

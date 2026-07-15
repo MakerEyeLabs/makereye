@@ -624,14 +624,24 @@ func TestTelemetryPublishAndDiscovery(t *testing.T) {
 		Status:        func() Status { return Status{StreamPhase: "running"} },
 		Telemetry: func() map[string]any {
 			return map[string]any{
-				"makereye_version":   "v1.2.3",
-				"os_version":         "Debian 12, kernel 6.6",
-				"cpu_percent":        12.3,
-				"memory_percent":     40.0,
-				"cpu_temp_c":         51.5,
-				"disk_used_percent":  7.1,
-				"disk_fullest_mount": "/",
-				"uptime_seconds":     int64(3600),
+				"os_version":           "Debian 12, kernel 6.6",
+				"cpu_percent":          12.3,
+				"memory_percent":       40.0,
+				"memory_available_mb":  120.5,
+				"cpu_temp_c":           51.5,
+				"disk_root_percent":    7.1,
+				"disk_root_free_gb":    53.2,
+				"disk_capture_percent": 12.0,
+				"disk_capture_free_gb": 40.1,
+				"capture_storage_low":  false,
+				"uptime_seconds":       int64(3600),
+				"uptime_human":         "1h 0m 0s",
+				"wifi_signal_dbm":      -56.0,
+				"wifi_link_quality":    54.0,
+				"wifi_interface":       "wlan0",
+				"undervoltage":         false,
+				"throttled":            true,
+				"clock_synchronized":   true,
 			}
 		},
 	}
@@ -645,8 +655,10 @@ func TestTelemetryPublishAndDiscovery(t *testing.T) {
 
 	// Diagnostic sensor discovery for every metric.
 	for _, key := range []string{
-		"makereye_version", "os_version", "cpu_percent", "memory_percent",
-		"cpu_temp_c", "disk_used_percent", "uptime_seconds",
+		"os_version", "cpu_percent", "memory_percent", "memory_available_mb",
+		"cpu_temp_c", "disk_root_percent", "disk_root_free_gb",
+		"disk_capture_percent", "disk_capture_free_gb",
+		"uptime_seconds", "wifi_signal_dbm",
 	} {
 		topic := "homeassistant/sensor/makereye_bench_printer_1/" + key + "/config"
 		recs := fc.publishedTo(topic)
@@ -664,20 +676,45 @@ func TestTelemetryPublishAndDiscovery(t *testing.T) {
 		}
 	}
 
+	// Binary sensors for the problem/health flags.
+	for _, key := range []string{
+		"capture_storage_low", "undervoltage", "throttled", "clock_synchronized",
+	} {
+		topic := "homeassistant/binary_sensor/makereye_bench_printer_1/" + key + "/config"
+		if recs := fc.publishedTo(topic); len(recs) == 0 {
+			t.Errorf("missing binary sensor discovery on %s", topic)
+		}
+	}
+
+	// The version sensor is gone: it duplicates the device sw_version.
+	if recs := fc.publishedTo("homeassistant/sensor/makereye_bench_printer_1/makereye_version/config"); len(recs) != 0 {
+		t.Error("makereye_version sensor should not be published")
+	}
+
+	// Attribute wiring: the uptime sensor exposes the human string.
+	recs := fc.publishedTo("homeassistant/sensor/makereye_bench_printer_1/uptime_seconds/config")
+	if len(recs) > 0 {
+		var doc map[string]any
+		_ = json.Unmarshal(recs[0].payload, &doc)
+		if tmpl, _ := doc["json_attributes_template"].(string); !strings.Contains(tmpl, "uptime_human") {
+			t.Errorf("uptime sensor should attach uptime_human attribute, got %v", doc["json_attributes_template"])
+		}
+	}
+
 	// Telemetry document published retained.
-	recs := fc.publishedTo("makereye/bench_printer_1/telemetry")
-	if len(recs) == 0 {
+	tele := fc.publishedTo("makereye/bench_printer_1/telemetry")
+	if len(tele) == 0 {
 		t.Fatal("expected telemetry publish on connect")
 	}
-	if !recs[0].retained {
+	if !tele[0].retained {
 		t.Error("telemetry should be retained")
 	}
-	var doc map[string]any
-	if err := json.Unmarshal(recs[0].payload, &doc); err != nil {
+	var teleDoc map[string]any
+	if err := json.Unmarshal(tele[0].payload, &teleDoc); err != nil {
 		t.Fatal(err)
 	}
-	if doc["makereye_version"] != "v1.2.3" || doc["cpu_percent"] != 12.3 {
-		t.Errorf("telemetry payload = %v", doc)
+	if teleDoc["os_version"] != "Debian 12, kernel 6.6" || teleDoc["cpu_percent"] != 12.3 {
+		t.Errorf("telemetry payload = %v", teleDoc)
 	}
 }
 
