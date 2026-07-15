@@ -8,6 +8,11 @@ SemVer once tagged releases begin.
 
 ### Added
 
+- Device telemetry over MQTT (`internal/sysinfo`): MakerEye version,
+  OS/kernel version, CPU usage averaged over the publish interval,
+  memory usage, CPU temperature, fullest-disk usage (mount attached as
+  an attribute), and uptime, published every 30s and discovered in Home
+  Assistant as diagnostic sensors.
 - Device-wide error visibility in Home Assistant: a "Last command
   result" sensor reporting the outcome of every MQTT-initiated command,
   and a "Last error" sensor showing the newest runtime error from any

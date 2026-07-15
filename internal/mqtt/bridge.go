@@ -87,6 +87,11 @@ type Hooks struct {
 	TimelapseRenderLast func(ctx context.Context) error
 
 	Status func() Status
+
+	// Telemetry returns device metrics (version, OS, CPU/memory/disk
+	// usage, temperature, uptime) published as HA diagnostic sensors.
+	// Nil disables the telemetry entities.
+	Telemetry func() map[string]any
 }
 
 // Bridge owns the MQTT client and the Home Assistant integration for
@@ -163,6 +168,27 @@ func (b *Bridge) availabilityTopic() string { return b.baseTopic() + "/availabil
 func (b *Bridge) statusTopic() string       { return b.baseTopic() + "/status" }
 func (b *Bridge) commandResultTopic() string {
 	return b.baseTopic() + "/last_command_result"
+}
+func (b *Bridge) telemetryTopic() string { return b.baseTopic() + "/telemetry" }
+
+// publishTelemetry publishes the device-metrics document. Retained so
+// HA restarts see the latest values immediately.
+func (b *Bridge) publishTelemetry() {
+	if b.hooks.Telemetry == nil {
+		return
+	}
+	b.mu.Lock()
+	client := b.client
+	b.mu.Unlock()
+	if client == nil {
+		return
+	}
+	data, err := json.Marshal(b.hooks.Telemetry())
+	if err != nil {
+		b.logger.Error("mqtt: marshaling telemetry", "error", err)
+		return
+	}
+	client.Publish(b.telemetryTopic(), 0, true, data)
 }
 
 // reportCommand publishes the outcome of an MQTT-initiated command so
@@ -283,6 +309,7 @@ func (b *Bridge) refreshLoop(ctx context.Context) {
 		case <-ticker.C:
 			if b.Connected() {
 				b.publishState()
+				b.publishTelemetry()
 			}
 		}
 	}
@@ -340,6 +367,7 @@ func (b *Bridge) onConnect(client paho.Client) {
 	})
 
 	b.publishState()
+	b.publishTelemetry()
 }
 
 func (b *Bridge) prusaEnabled() bool {
@@ -665,6 +693,39 @@ func (b *Bridge) discoveryConfigs() map[string][]byte {
 					"value_template": fmt.Sprintf("{{ value_json.%s }}", key),
 				})
 		}
+	}
+
+	if b.hooks.Telemetry != nil {
+		dp := b.cfg.MQTT.DiscoveryPrefix
+		diag := func(name, key string, extra map[string]any) {
+			cfg := merge(common(name, key), map[string]any{
+				"state_topic":     b.telemetryTopic(),
+				"value_template":  fmt.Sprintf("{{ value_json.%s }}", key),
+				"entity_category": "diagnostic",
+			})
+			configs[fmt.Sprintf("%s/sensor/%s/%s/config", dp, node, key)] = merge(cfg, extra)
+		}
+		diag("MakerEye version", "makereye_version", nil)
+		diag("OS version", "os_version", nil)
+		diag("CPU usage", "cpu_percent", map[string]any{
+			"unit_of_measurement": "%", "state_class": "measurement",
+		})
+		diag("Memory usage", "memory_percent", map[string]any{
+			"unit_of_measurement": "%", "state_class": "measurement",
+		})
+		diag("CPU temperature", "cpu_temp_c", map[string]any{
+			"unit_of_measurement": "°C", "device_class": "temperature",
+			"state_class": "measurement",
+		})
+		diag("Disk usage (fullest)", "disk_used_percent", map[string]any{
+			"unit_of_measurement":      "%",
+			"state_class":              "measurement",
+			"json_attributes_topic":    b.telemetryTopic(),
+			"json_attributes_template": `{{ {"mount": value_json.disk_fullest_mount} | tojson }}`,
+		})
+		diag("Uptime", "uptime_seconds", map[string]any{
+			"unit_of_measurement": "s", "device_class": "duration",
+		})
 	}
 
 	out := make(map[string][]byte, len(configs))

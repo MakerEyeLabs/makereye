@@ -614,6 +614,83 @@ func TestLastErrorSensorAndStatusField(t *testing.T) {
 	}
 }
 
+func TestTelemetryPublishAndDiscovery(t *testing.T) {
+	cfg := testConfig()
+	fc := newFakeClient()
+	hooks := Hooks{
+		StreamStart:   func(context.Context) error { return nil },
+		StreamStop:    func(context.Context) error { return nil },
+		StreamRestart: func(context.Context) error { return nil },
+		Status:        func() Status { return Status{StreamPhase: "running"} },
+		Telemetry: func() map[string]any {
+			return map[string]any{
+				"makereye_version":   "v1.2.3",
+				"os_version":         "Debian 12, kernel 6.6",
+				"cpu_percent":        12.3,
+				"memory_percent":     40.0,
+				"cpu_temp_c":         51.5,
+				"disk_used_percent":  7.1,
+				"disk_fullest_mount": "/",
+				"uptime_seconds":     int64(3600),
+			}
+		},
+	}
+	b := NewBridge(cfg, testLogger(), hooks)
+	b.newClient = func(*paho.ClientOptions) paho.Client { return fc }
+	if err := b.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { b.Stop(context.Background()) })
+	b.onConnect(fc)
+
+	// Diagnostic sensor discovery for every metric.
+	for _, key := range []string{
+		"makereye_version", "os_version", "cpu_percent", "memory_percent",
+		"cpu_temp_c", "disk_used_percent", "uptime_seconds",
+	} {
+		topic := "homeassistant/sensor/makereye_bench_printer_1/" + key + "/config"
+		recs := fc.publishedTo(topic)
+		if len(recs) == 0 {
+			t.Errorf("missing telemetry discovery on %s", topic)
+			continue
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(recs[0].payload, &doc); err != nil {
+			t.Errorf("bad discovery JSON on %s: %v", topic, err)
+			continue
+		}
+		if doc["entity_category"] != "diagnostic" {
+			t.Errorf("%s should be a diagnostic entity, got %v", key, doc["entity_category"])
+		}
+	}
+
+	// Telemetry document published retained.
+	recs := fc.publishedTo("makereye/bench_printer_1/telemetry")
+	if len(recs) == 0 {
+		t.Fatal("expected telemetry publish on connect")
+	}
+	if !recs[0].retained {
+		t.Error("telemetry should be retained")
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(recs[0].payload, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc["makereye_version"] != "v1.2.3" || doc["cpu_percent"] != 12.3 {
+		t.Errorf("telemetry payload = %v", doc)
+	}
+}
+
+func TestTelemetryOmittedWithoutHook(t *testing.T) {
+	_, fc, _ := startTestBridge(t, testConfig()) // startTestBridge sets no Telemetry hook
+	if recs := fc.publishedTo("makereye/bench_printer_1/telemetry"); len(recs) != 0 {
+		t.Error("telemetry should not publish without a hook")
+	}
+	if recs := fc.publishedTo("homeassistant/sensor/makereye_bench_printer_1/cpu_percent/config"); len(recs) != 0 {
+		t.Error("telemetry discovery should not publish without a hook")
+	}
+}
+
 func TestDiscoveryPayloadsIncludeOrigin(t *testing.T) {
 	_, fc, _ := startTestBridge(t, testConfig())
 	recs := fc.publishedTo("homeassistant/switch/makereye_bench_printer_1/stream/config")

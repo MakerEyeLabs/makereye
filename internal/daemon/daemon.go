@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,7 +23,9 @@ import (
 	"github.com/MakerEyeLabs/makereye/internal/mqtt"
 	"github.com/MakerEyeLabs/makereye/internal/prusaconnect"
 	"github.com/MakerEyeLabs/makereye/internal/snapshot"
+	"github.com/MakerEyeLabs/makereye/internal/sysinfo"
 	"github.com/MakerEyeLabs/makereye/internal/timelapse"
+	"github.com/MakerEyeLabs/makereye/internal/version"
 )
 
 // Daemon is the running MakerEye process: it supervises go2rtc, the
@@ -36,6 +39,7 @@ type Daemon struct {
 	lights     *lighting.Manager
 	lapse      *timelapse.Manager
 	bridge     *mqtt.Bridge
+	sys        *sysinfo.Collector
 }
 
 // New creates a Daemon for cfg.
@@ -50,6 +54,7 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 		supervisor: go2rtc.NewSupervisor(cfg, logger),
 		uploader:   prusaconnect.NewUploader(cfg, source, logger),
 		lights:     lighting.NewManager(cfg, logger),
+		sys:        sysinfo.New(),
 	}
 	d.lapse = timelapse.NewManager(cfg, source, timelapse.LightHooks{
 		States: d.lights.States,
@@ -83,11 +88,40 @@ func New(cfg *config.Config, logger *slog.Logger) *Daemon {
 			}
 			return d.lapse.Render(last.ID)
 		},
-		Status: d.mqttStatus,
+		Status:    d.mqttStatus,
+		Telemetry: d.mqttTelemetry,
 	})
 	// Push MQTT state promptly on timelapse phase transitions.
 	d.lapse.SetOnChange(d.bridge.PublishState)
 	return d
+}
+
+// mqttTelemetry collects device metrics for the MQTT diagnostic
+// sensors. Metric collection failures just omit that key -- telemetry
+// must never produce errors of its own.
+func (d *Daemon) mqttTelemetry() map[string]any {
+	round1 := func(v float64) float64 { return math.Round(v*10) / 10 }
+	t := map[string]any{
+		"makereye_version": version.String(),
+		"os_version":       d.sys.OSVersion(),
+	}
+	if v, err := d.sys.CPUPercent(); err == nil {
+		t["cpu_percent"] = round1(v)
+	}
+	if v, err := d.sys.MemoryPercent(); err == nil {
+		t["memory_percent"] = round1(v)
+	}
+	if v, err := d.sys.CPUTempC(); err == nil {
+		t["cpu_temp_c"] = round1(v)
+	}
+	if pct, mount, err := d.sys.MaxDiskUsage(); err == nil {
+		t["disk_used_percent"] = round1(pct)
+		t["disk_fullest_mount"] = mount
+	}
+	if secs, err := d.sys.UptimeSeconds(); err == nil {
+		t["uptime_seconds"] = secs
+	}
+	return t
 }
 
 // mqttStatus snapshots the subsystems for the MQTT bridge.

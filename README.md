@@ -307,6 +307,10 @@ duplicate. The discovered device has:
   `lighting.enabled` is true),
 - timelapse **start/stop/render buttons**, **interval/fps number
   entities**, and job sensors (when `timelapse.enabled` is true),
+- **diagnostic sensors**: MakerEye version, OS/kernel version, CPU
+  usage (averaged over the publish interval), memory usage, CPU
+  temperature, fullest-disk usage (with the mount as an attribute),
+  and uptime,
 - sensors: stream phase, Prusa upload/failure counts,
 - availability wiring, so everything shows "unavailable" if the daemon
   or the Pi goes down.
